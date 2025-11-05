@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crowdsourced Civic Issue Reporter – Single‑File Prototype (with Reviews)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}</style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div id="root"></div>
+  <script type="text/babel">
+    const {useEffect, useMemo, useRef, useState} = React;
+    const DEPARTMENTS={Pothole:"Public Works",Streetlight:"Electrical",Garbage:"Sanitation",Water:"Water Board",Safety:"Traffic Police",Other:"General Admin"};
+    const CATEGORIES=Object.keys(DEPARTMENTS);
+    const PRIORITIES=["low","medium","high"];
+    const STATUS_FLOW=["Submitted","Acknowledged","Assigned","In Progress","Resolved"];
+    const storageKey="civic-issue-reports-v1";
+    const techniciansKey="civic-technicians-v1";
+    const fakeId=()=>Math.random().toString(36).slice(2,10);
+    
+    // Initial technicians data per department
+    const INITIAL_TECHNICIANS = {
+      "Public Works": [
+        { id: "pw1", name: "John Smith", available: true, currentTask: null },
+        { id: "pw2", name: "Mike Johnson", available: true, currentTask: null },
+        { id: "pw3", name: "Sarah Wilson", available: true, currentTask: null },
+        { id: "pw4", name: "Robert Brown", available: true, currentTask: null },
+        { id: "pw5", name: "David Miller", available: true, currentTask: null }
+      ],
+      "Electrical": [
+        { id: "el1", name: "James Anderson", available: true, currentTask: null },
+        { id: "el2", name: "Patricia Lee", available: true, currentTask: null },
+        { id: "el3", name: "Thomas Wright", available: true, currentTask: null },
+        { id: "el4", name: "Lisa Martinez", available: true, currentTask: null },
+        { id: "el5", name: "Kevin Taylor", available: true, currentTask: null }
+      ],
+      "Sanitation": [
+        { id: "sn1", name: "Daniel White", available: true, currentTask: null },
+        { id: "sn2", name: "Mary Harris", available: true, currentTask: null },
+        { id: "sn3", name: "Joseph Clark", available: true, currentTask: null },
+        { id: "sn4", name: "Jennifer Lewis", available: true, currentTask: null },
+        { id: "sn5", name: "Richard Hall", available: true, currentTask: null }
+      ],
+      "Water Board": [
+        { id: "wb1", name: "Charles Turner", available: true, currentTask: null },
+        { id: "wb2", name: "Susan Walker", available: true, currentTask: null },
+        { id: "wb3", name: "George King", available: true, currentTask: null },
+        { id: "wb4", name: "Margaret Young", available: true, currentTask: null },
+        { id: "wb5", name: "Edward Baker", available: true, currentTask: null }
+      ],
+      "Traffic Police": [
+        { id: "tp1", name: "William Green", available: true, currentTask: null },
+        { id: "tp2", name: "Elizabeth Adams", available: true, currentTask: null },
+        { id: "tp3", name: "Michael Scott", available: true, currentTask: null },
+        { id: "tp4", name: "Karen Nelson", available: true, currentTask: null },
+        { id: "tp5", name: "Steven Carter", available: true, currentTask: null }
+      ],
+      "General Admin": [
+        { id: "ga1", name: "Donald Hill", available: true, currentTask: null },
+        { id: "ga2", name: "Nancy Moore", available: true, currentTask: null },
+        { id: "ga3", name: "Christopher Ross", available: true, currentTask: null },
+        { id: "ga4", name: "Betty Cooper", available: true, currentTask: null },
+        { id: "ga5", name: "Mark Peterson", available: true, currentTask: null }
+      ]
+    };
+    const loadReports=()=>{try{return JSON.parse(localStorage.getItem(storageKey)||"[]");}catch{return[]}};
+    const saveReports=(it)=>localStorage.setItem(storageKey,JSON.stringify(it));
+    const assignDepartment=(c)=>DEPARTMENTS[c]||DEPARTMENTS.Other;
+    function inferPriority(c,d){const t=`${c} ${d}`.toLowerCase();if(t.includes("accident")||t.includes("injury")||t.includes("live wire")||t.includes("overflowing"))return"high";if(t.includes("blocked")||t.includes("leak")||t.includes("night"))return"medium";return"low"}
+    const nextStatus=(s)=>STATUS_FLOW[Math.min(STATUS_FLOW.indexOf(s)+1,STATUS_FLOW.length-1)];
+    const fmtDate=(iso)=>{try{return new Date(iso).toLocaleString()}catch{return iso}};
+    const badgeColor=(p)=>p==="high"?"border-red-300 bg-red-50 text-red-700":(p==="medium"?"border-amber-300 bg-amber-50 text-amber-700":"border-emerald-300 bg-emerald-50 text-emerald-700");
+    const listeners=new Set(); const dispatchSystemEvent=(e)=>listeners.forEach(f=>f(e)); const useSystemEvents=(h)=>{useEffect(()=>{listeners.add(h);return()=>listeners.delete(h)},[h])};
+  // Notifications stored locally for demo
+  const notificationsKey = 'civic-notifications-v1';
+  const loadNotifications = ()=>{try{return JSON.parse(localStorage.getItem(notificationsKey)||'[]')}catch{return[]}};
+  const saveNotifications = (arr)=>localStorage.setItem(notificationsKey,JSON.stringify(arr));
+  const pushNotification = (n)=>{const cur = loadNotifications(); cur.unshift(n); saveNotifications(cur)};
+    const Ico=(p)=>React.createElement("svg",{className:p.c,viewBox:"0 0 24 24",fill:p.f||"none",stroke:"currentColor",strokeWidth:p.w||"2",strokeLinecap:"round",strokeLinejoin:"round"},p.children);
+    const CameraIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l2-3h8l2 3h3a2 2 0 0 1 2 2z"}),React.createElement("circle",{cx:"12",cy:"13",r:"4"})]});
+    const MapPinIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1 1 18 0z"}),React.createElement("circle",{cx:"12",cy:"10",r:"3"})]});
+    const SendIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"m22 2-7 20-4-9-9-4Z"}),React.createElement("path",{d:"M22 2 11 13"})]});
+    const CheckIcon=()=>Ico({c:"w-5 h-5",children:[React.createElement("path",{d:"M20 6 9 17l-5-5"})]});
+    const ClockIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("circle",{cx:"12",cy:"12",r:"10"}),React.createElement("path",{d:"m12 6 0 6 4 2"})]});
+    const WrenchIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"M14.7 6.3a4 4 0 1 0-5.6 5.6l8.6 8.6a2 2 0 0 0 2.8-2.8l-8.6-8.6z"})]});
+    const TrashIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("polyline",{points:"3 6 5 6 21 6"}),React.createElement("path",{d:"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"}),React.createElement("path",{d:"M10 11v6M14 11v6"}),React.createElement("path",{d:"M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"})]});
+    const AlertIcon=()=>Ico({c:"w-5 h-5",children:[React.createElement("path",{d:"M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"}),React.createElement("line",{x1:"12",y1:"9",x2:"12",y2:"13"}),React.createElement("line",{x1:"12",y1:"17",x2:"12.01",y2:"17"})]});
+    const BellIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"}),React.createElement("path",{d:"M10.3 21a1.7 1.7 0 0 0 3.4 0"})]});
+    const StarIcon=({filled=false,className=''})=>Ico({c:`w-5 h-5 ${className}`,f:filled?"currentColor":"none",w:"1.5",children:[React.createElement("path",{d:"M12 17.3 6.2 20l1.1-6.5L2 8.8l6.6-1 3-6 3 6 6.6 1-4.8 4.7 1.1 6.5z"})]});
+    function useReports(){const [reports,setReports]=useState(loadReports());useEffect(()=>{saveReports(reports)},[reports]);return[reports,setReports]}
+    
+    // Load technicians data from localStorage or use initial data
+    const loadTechnicians = () => {
+      try {
+        const saved = localStorage.getItem(techniciansKey);
+        return saved ? JSON.parse(saved) : INITIAL_TECHNICIANS;
+      } catch {
+        return INITIAL_TECHNICIANS;
+      }
+    };
+    
+    // Save technicians data to localStorage
+    const saveTechnicians = (techs) => {
+      localStorage.setItem(techniciansKey, JSON.stringify(techs));
+    };
+    
+    // Custom hook to manage technicians state
+    function useTechnicians() {
+      const [technicians, setTechnicians] = useState(loadTechnicians());
+      
+      useEffect(() => {
+        saveTechnicians(technicians);
+      }, [technicians]);
+      
+      // Find an available technician in a department
+      const findAvailableTechnician = (department) => {
+        const deptTechs = technicians[department] || [];
+        return deptTechs.find(tech => tech.available);
+      };
+      
+      // Assign a task to a technician
+      const assignTask = (reportId, department) => {
+        const tech = findAvailableTechnician(department);
+        if (!tech) return null;
+        
+        setTechnicians(prev => ({
+          ...prev,
+          [department]: prev[department].map(t => 
+            t.id === tech.id 
+              ? { ...t, available: false, currentTask: reportId }
+              : t
+          )
+        }));
+        
+        return tech;
+      };
+      
+      // Mark a technician's task as complete
+      const completeTask = (techId, department) => {
+        setTechnicians(prev => ({
+          ...prev,
+          [department]: prev[department].map(t =>
+            t.id === techId
+              ? { ...t, available: true, currentTask: null }
+              : t
+          )
+        }));
+      };
+      
+      return {
+        technicians,
+        findAvailableTechnician,
+        assignTask,
+        completeTask
+      };
+    }
+    
+    async function fileToDataUrl(file){return new Promise((res)=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file)})}
+    // Resize/compress a data URL (image) to reduce size before storing in localStorage
+    async function resizeDataUrl(dataUrl, maxWidth=1024, quality=0.75){
+      return new Promise((res,rej)=>{
+        try{
+          const img = new Image();
+          img.onload = ()=>{
+            const ratio = Math.min(1, maxWidth / img.width);
+            const w = Math.round(img.width * ratio);
+            const h = Math.round(img.height * ratio);
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img,0,0,w,h);
+            const out = canvas.toDataURL('image/jpeg', quality);
+            res(out);
+          };
+          img.onerror = (e)=>rej(e);
+          img.src = dataUrl;
+        }catch(e){rej(e)}
+      })
+    }
+    function App(){
+      const [tab,setTab]=useState("report");
+      const [reports,setReports]=useReports();
+      const [filters,setFilters]=useState({category:"",status:"",priority:""});
+      const [userType,setUserType]=useState(""); // "public" or "government"
+      const [govProfile,setGovProfile]=useState(()=>{try{return JSON.parse(localStorage.getItem('govProfile')||"null")}catch{return null}});
+      const [publicProfile,setPublicProfile]=useState(()=>{try{return JSON.parse(localStorage.getItem('publicProfile')||"null")}catch{return null}});
+       const [techLoginId, setTechLoginId] = useState("");
+       const [techError, setTechError] = useState("");
+       const [techProfile, setTechProfile] = useState(() => {
+         try {
+           return JSON.parse(localStorage.getItem('technicianProfile') || "null");
+         } catch {
+           return null;
+         }
+       });
+     
+       function handleTechnicianLogin(techId) {
+         const allTechs = Object.values(INITIAL_TECHNICIANS).flat();
+         const tech = allTechs.find(t => t.id === techId);
+         if (tech) {
+           localStorage.setItem('technicianProfile', JSON.stringify(tech));
+           setTechProfile(tech);
+           setUserType("technician");
+           setTechError("");
+         } else {
+           setTechError("Invalid technician ID. Please try again.");
+         }
+       }
+      const publicFileRef = useRef();
+      const [tempPublic,setTempPublic]=useState({photo:null,name:'',phone:''});
+      const [pendingPublicLogin,setPendingPublicLogin]=useState(false);
+      const { technicians, assignTask, completeTask } = useTechnicians();
+  // Defensive: ensure technicians tab is only visible/active for government users.
+  // If userType changes away from 'government' while technicians tab is active,
+  // force the UI back to the default 'report' tab to prevent public access.
+  useEffect(()=>{
+    if(userType !== 'government' && tab === 'technicians'){
+      setTab('report');
+    }
+  }, [userType, tab]);
+      async function handlePublicFileChange(e){
+        const file = e.target.files?.[0]; if(!file) return;
+        const dataUrl = await fileToDataUrl(file);
+        const name = prompt('Your name', (publicProfile && publicProfile.name) || 'You') || 'You';
+        const phone = prompt('Contact number (optional)', (publicProfile && publicProfile.phone) || '') || '';
+        try{
+          // try to resize/compress before saving
+          const small = await resizeDataUrl(dataUrl, 1024, 0.75).catch(()=>dataUrl);
+          const profile = {photo: small, name, phone, at: new Date().toISOString()};
+          localStorage.setItem('publicProfile', JSON.stringify(profile)); setPublicProfile(profile);
+        }catch(e){
+          console.error('save public profile failed', e);
+          alert('Unable to save profile locally — image may be too large. Try using a smaller image or retry.');
+        }
+      }
+      function removePublicProfile(){localStorage.removeItem('publicProfile'); setPublicProfile(null)}
+      // Only show login if not selected
+      const filtered=useMemo(()=>{
+        let base = reports;
+        // Government should see all reports (no reporter-name filtering)
+        return base.filter(r=>{
+          if(filters.category&&r.category!==filters.category)return false;
+          if(filters.status&&r.status!==filters.status)return false;
+          if(filters.priority&&r.priority!==filters.priority)return false;
+          return true;
+        });
+      },[reports,filters,userType]);
+      // Counts per category (used for government summary)
+      const categoryCounts = useMemo(()=>{
+        const out = Object.fromEntries(CATEGORIES.map(c=>[c,0]));
+        filtered.forEach(r=>{ if(r && r.category){ out[r.category] = (out[r.category]||0) + 1 }});
+        return out;
+      },[filtered]);
+      if(!userType) {
+        const bgUrl = `url("./background civic.png.jpg")`;
+        return (
+          <div className="min-h-screen flex items-center justify-center" style={{backgroundImage: bgUrl, backgroundSize:'cover', backgroundPosition:'center'}}>
+            <div className="rounded-2xl p-8 w-full max-w-sm text-center backdrop text-blur-white/95 bg-transparent">
+              <h2 className="text-2xl sm:text-3xl font-bold mb-3">Login</h2>
+              <p className="mb-6 text-lg text-white/90">Select your role to continue:</p>
+              {!pendingPublicLogin ? (
+                <>
+                  <div className="flex flex-col gap-4">
+                    <button className="px-5 py-3 rounded-xl bg-slate-900 text-white font-semibold text-lg" onClick={()=>setPendingPublicLogin(true)}>Public Login</button>
+                    <button className="px-5 py-3 rounded-xl bg-blue-700 text-white font-semibold text-lg" onClick={()=>setUserType("government")}>Government Login</button>
+                     <div className="relative">
+                       <div className="absolute inset-0 flex items-center">
+                         <div className="w-full border-t border-white/20"></div>
+                       </div>
+                       <div className="relative flex justify-center">
+                         <span className="px-2 text-sm text-white/60 bg-black/20">or</span>
+                       </div>
+                     </div>
+                     <div className="space-y-3">
+                       <input 
+                         type="text" 
+                         value={techLoginId}
+                         onChange={(e) => {
+                           setTechLoginId(e.target.value);
+                           setTechError("");
+                         }}
+                         placeholder="Enter Technician ID (e.g., pw1, el2)"
+                         className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50"
+                       />
+                       <button 
+                         className="w-full px-5 py-3 rounded-xl bg-amber-600 text-white font-semibold text-lg"
+                         onClick={() => handleTechnicianLogin(techLoginId)}
+                       >
+                         Technician Login
+                       </button>
+                       {techError && (
+                         <div className="text-red-300 text-sm mt-2">{techError}</div>
+                       )}
+                     </div>
+                  </div>
+                  <div className="mt-4 text-sm text-white/80">If logging in as government, you will be asked to upload an ID proof image.</div>
+                </>
+              ) : (
+                <div className="bg-white/5 rounded-xl p-4 mt-4 text-left text-sm">
+                  <h3 className="text-lg font-semibold mb-2">Public — Upload ID / Profile</h3>
+                  <p className="mb-3">Please upload an ID or profile photo and enter your name/phone. This is stored locally for the demo.</p>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center">
+                      <label className="inline-flex flex-col items-center px-4 py-2 bg-slate-50 rounded-xl border cursor-pointer text-slate-700">
+                        <div className="text-sm">Click to select image</div>
+                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={async (e)=>{const f=e.target.files?.[0]; if(!f) return; const d = await fileToDataUrl(f); setTempPublic(tp=>({...tp,photo:d}));}} />
+                      </label>
+                    </div>
+                    {tempPublic.photo && (
+                      <div className="flex items-center justify-center">
+                        <img src={tempPublic.photo} alt="preview" className="w-48 h-28 object-cover rounded-md border"/>
+                      </div>
+                    )}
+                    {/* Live preview of name & phone while typing */}
+                    <div className="mt-2 text-sm text-slate-700 text-center">
+                      <div className="font-medium">{tempPublic.name || 'Your name will appear here'}</div>
+                      <div className="text-xs text-slate-500">{tempPublic.phone || 'Phone will appear here'}</div>
+                    </div>
+                    <input value={tempPublic.name} onChange={(e)=>setTempPublic(tp=>({...tp,name:e.target.value}))} className="w-full border rounded-xl px-3 py-2" placeholder="Your name" />
+                    <input value={tempPublic.phone} onChange={(e)=>setTempPublic(tp=>({...tp,phone:e.target.value}))} className="w-full border rounded-xl px-3 py-2" placeholder="Phone (optional)" />
+                    <div className="flex items-center gap-2 justify-center">
+                      <button onClick={async ()=>{if(!tempPublic.photo){alert('Please choose an image');return} try{const small = await resizeDataUrl(tempPublic.photo,1024,0.75).catch(()=>tempPublic.photo); const profile={photo:small,name:tempPublic.name||'You',phone:tempPublic.phone||'',at:new Date().toISOString()}; localStorage.setItem('publicProfile',JSON.stringify(profile)); setPublicProfile(profile); setUserType('public'); setTab('report'); setPendingPublicLogin(false);}catch(e){console.error(e);alert('Unable to save profile locally — try a smaller image')}}} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Save & Continue</button>
+                      <button onClick={()=>{setPendingPublicLogin(false); setTempPublic({photo:null,name:'',phone:''})}} className="px-4 py-2 rounded-xl border bg-white">Back</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+      return(
+        <div className="min-h-screen">
+          <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-slate-200">
+            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="p-2 rounded-2xl bg-slate-900 text-white"><AlertIcon/></span>
+                <h1 className="font-semibold text-lg">Crowdsourced Civic Issue Reporter</h1>
+                <span className="text-xs text-slate-500 hidden sm:inline">Prototype – single file</span>
+              </div>
+              {/* Show government or public thumbnail if available */}
+              <div className="flex items-center gap-3">
+                {userType === 'government' && govProfile && govProfile.idImage && (
+                  <img src={govProfile.idImage} alt="Gov ID" className="w-10 h-10 rounded-md object-cover border"/>
+                )}
+                {userType === 'public' && publicProfile && publicProfile.photo && (
+                  <img src={publicProfile.photo} alt="Your profile" className="w-10 h-10 rounded-md object-cover border"/>
+                )}
+                {/* hidden file input for public profile upload (header) */}
+                <input ref={publicFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePublicFileChange} />
+                {userType === 'public' && (
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>publicFileRef.current?.click()} className="text-xs px-2 py-1 rounded bg-slate-100 border">{publicProfile? 'Replace' : 'Upload'}</button>
+                    {publicProfile && <button onClick={removePublicProfile} className="text-xs px-2 py-1 rounded border text-red-600">Remove</button>}
+                  </div>
+                )}
+              </div>
+              <nav className="flex gap-1">
+                <TabButton label="Report" active={tab==="report"} onClick={()=>setTab("report")}/>
+                {userType==="public" && <TabButton label="My Reports" active={tab==="my"} onClick={()=>setTab("my")}/>} 
+                {userType === 'government' && !govProfile ? (
+                  <>
+                    <button title="Upload ID to access admin" className="px-3 py-1.5 rounded-full text-sm border bg-white text-slate-400 border-slate-200 cursor-not-allowed">Admin 🔒</button>
+                    <button title="Upload ID to access technicians" className="px-3 py-1.5 rounded-full text-sm border bg-white text-slate-400 border-slate-200 cursor-not-allowed">Technicians 🔒</button>
+                  </>
+                ) : (
+                  <>
+                    <TabButton label="Admin" active={tab==="admin"} onClick={()=>setTab("admin")}/>
+                    <TabButton label="Technicians" active={tab==="technicians"} onClick={()=>setTab("technicians")}/>
+                  </>
+                )}
+              </nav>
+              <div className="ml-4 flex items-center gap-2">
+                <span className="text-xs px-2 py-1 rounded bg-slate-200">{userType === "public" ? "Public" : "Government"}</span>
+                <button className="text-xs underline text-blue-600" onClick={()=>setUserType("")}>Logout</button>
+              </div>
+            </div>
+          </header>
+          <main className="max-w-6xl mx-auto p-4">
+            {/* Government onboarding: ask for ID proof if not provided */}
+            {userType === 'government' && !govProfile && (
+              <div className="max-w-md mx-auto mb-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 text-center">
+                  <h3 className="font-semibold text-lg mb-2">Government — Upload ID Proof</h3>
+                  <p className="text-sm text-slate-600 mb-3">Please upload an official ID image (badge, letterhead, or ID card). This will be stored locally for this demo.</p>
+                  <GovIdUploader onSave={async (dataUrl)=>{try{const small=await resizeDataUrl(dataUrl,1024,0.8).catch(()=>dataUrl); localStorage.setItem('govProfile',JSON.stringify({idImage:small,at:new Date().toISOString()}));setGovProfile({idImage:small,at:new Date().toISOString()});setTab('report');}catch(e){console.error(e);alert('Unable to save ID locally — try a smaller image')}}} />
+                </div>
+              </div>
+            )}
+            {tab==="report" && userType==="public" && !publicProfile && (
+              <div className="max-w-md mx-auto mb-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 text-center">
+                  <h3 className="font-semibold text-lg mb-2">Public — Upload Profile</h3>
+                  <p className="text-sm text-slate-600 mb-3">Please upload a profile photo and enter your name & contact. This will be stored locally for this demo.</p>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center">
+                      <label className="inline-flex flex-col items-center px-4 py-2 bg-slate-50 rounded-xl border cursor-pointer">
+                        <div className="text-sm text-slate-600">Click to select image</div>
+                          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={async (e)=>{const f=e.target.files?.[0]; if(!f) return; const d = await fileToDataUrl(f); setTempPublic(tp=>({...tp,photo:d}));}} />
+                      </label>
+                    </div>
+                    {tempPublic.photo && (
+                      <div className="flex items-center justify-center">
+                        <img src={tempPublic.photo} alt="preview" className="w-48 h-28 object-cover rounded-md border"/>
+                      </div>
+                    )}
+                    {/* Live preview of name & phone while typing */}
+                    <div className="mt-2 text-sm text-slate-700 text-center">
+                      <div className="font-medium">{tempPublic.name || 'Your name will appear here'}</div>
+                      <div className="text-xs text-slate-500">{tempPublic.phone || 'Phone will appear here'}</div>
+                    </div>
+                    <div className="grid gap-2">
+                      <input value={tempPublic.name} onChange={(e)=>setTempPublic(tp=>({...tp,name:e.target.value}))} className="border rounded-xl px-3 py-2" placeholder="Your name" />
+                      <input value={tempPublic.phone} onChange={(e)=>setTempPublic(tp=>({...tp,phone:e.target.value}))} className="border rounded-xl px-3 py-2" placeholder="Phone (optional)" />
+                    </div>
+                    <div className="flex items-center gap-2 justify-center">
+                      <button onClick={async ()=>{if(!tempPublic.photo){alert('Please select a photo');return} const profile = {photo:tempPublic.photo,name:tempPublic.name||'You',phone:tempPublic.phone||'',at:new Date().toISOString()}; try{localStorage.setItem('publicProfile',JSON.stringify(profile)); setPublicProfile(profile); setTab('report');}catch(e){alert('Unable to save profile locally')}}} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Save Profile</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {tab==="report" && userType==="public" && publicProfile && <ReportForm publicProfile={publicProfile} onSubmit={(r)=>setReports([r,...reports])}/>} 
+            {tab==="report" && userType==="government" && !govProfile && (
+              <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border text-slate-600">Access restricted: upload government ID to view public reports.</div>
+            )}
+            {tab==="report" && userType==="government" && govProfile && (
+              <div>
+                {/* Category counts summary for government */}
+                <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                  {Object.entries(categoryCounts).map(([cat,count])=>(
+                    <div key={cat} className="bg-white/80 backdrop-blur rounded-xl p-3 text-sm text-slate-900 flex flex-col items-start">
+                      <div className="text-xs text-slate-500">{cat}</div>
+                      <div className="text-2xl font-semibold mt-1">{count}</div>
+                    </div>
+                  ))}
+                </div>
+                <AdminView reports={filtered} allReports={reports} setReports={setReports} filters={filters} setFilters={setFilters} showPriority={false}/>
+              </div>
+            )}
+            {tab==="my" && userType==="public" && <CitizenView reports={reports} setReports={setReports} publicProfile={publicProfile}/>} 
+            {tab==="admin" && (userType==='government' && !govProfile ? (
+              <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border text-slate-600">Access restricted: upload government ID to access Admin features.</div>
+            ) : (
+              <AdminView reports={filtered} allReports={reports} setReports={setReports} filters={filters} setFilters={setFilters} showPriority={true}/>
+            ))}
+              {/* Technician View */}
+              {userType === "technician" && (
+                <div className="space-y-6">
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold">Your Assigned Tasks</h3>
+                        <p className="text-sm text-slate-500">Manage and update your assigned work</p>
+                      </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-slate-600">Logged in as:</span>
+                      <span className="px-3 py-1 rounded-lg bg-amber-100 text-amber-700">
+                        <span className="font-medium">{techProfile?.name}</span>
+                        <span className="text-xs ml-1">({techProfile?.id})</span>
+                      </span>
+                    </div>
+                    </div>
+                  
+                    <div className="space-y-4">
+                      {reports.filter(r => r.assignedTechnician === techProfile?.id).map(task => (
+                        <div key={task.id} className="border rounded-xl p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium text-lg">{task.category}</span>
+                            <span className={`px-2 py-1 rounded-full text-xs ${
+                              task.status === "In Progress" ? "bg-blue-100 text-blue-700" :
+                              task.status === "Assigned" ? "bg-amber-100 text-amber-700" :
+                              "bg-slate-100 text-slate-700"
+                            }`}>{task.status}</span>
+                          </div>
+                          <p className="text-slate-600 mb-3">{task.description}</p>
+                          <div className="flex items-center gap-4">
+                            {task.status === "Assigned" && (
+                              <button
+                                onClick={() => {
+                                  const now = new Date().toISOString();
+                                  setReports(prev => prev.map(r => r.id === task.id ? {
+                                    ...r,
+                                    status: "In Progress",
+                                    updates: [...r.updates, {
+                                      at: now,
+                                      status: "In Progress",
+                                      note: `Work started by technician ${techProfile.name} (${techProfile.id})`
+                                    }]
+                                  } : r));
+                                }}
+                                className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm"
+                              >
+                                Start Work
+                              </button>
+                            )}
+                            {task.status === "In Progress" && (
+                              <button
+                                onClick={() => {
+                                  const now = new Date().toISOString();
+                                  setReports(prev => prev.map(r => r.id === task.id ? {
+                                    ...r,
+                                    status: "Pending Review",
+                                    updates: [...r.updates, {
+                                      at: now,
+                                      status: "Pending Review",
+                                      note: `Work completed by technician ${techProfile.name} (${techProfile.id}), awaiting review`
+                                    }]
+                                  } : r));
+                                  // Notify government about completion
+                                  pushNotification({
+                                    id: Date.now(),
+                                    reportId: task.id,
+                                    message: `Technician ${techProfile.name} (${techProfile.id}) has completed work on ${task.category} task. Please review and mark as resolved.`,
+                                    at: now,
+                                    type: "government"
+                                  });
+                                }}
+                                className="px-3 py-2 rounded-lg bg-green-600 text-white text-sm"
+                              >
+                                Mark Complete
+                              </button>
+                            )}
+                            <div className="text-sm text-slate-500">
+                              Last updated: {fmtDate(task.updates[task.updates.length - 1]?.at)}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            {tab==="technicians" && (userType==='government' && !govProfile ? (
+              <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border text-slate-600">Access restricted: upload government ID to access Technicians features.</div>
+            ) : (
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                  <h3 className="font-semibold mb-3">Available Technicians</h3>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {Object.values(DEPARTMENTS).map(dept => {
+                      const deptTechs = technicians[dept] || [];
+                      const availableCount = deptTechs.filter(t => t.available).length;
+                      const occupiedCount = deptTechs.length - availableCount;
+                      return (
+                        <div key={dept} className="border-2 rounded-xl p-4 bg-gradient-to-b from-white to-slate-50">
+                          <div className="text-lg font-semibold mb-3">{dept}</div>
+                          <div className="flex items-center gap-4 mb-4">
+                            <div className="flex-1 bg-green-100 rounded-lg p-2 text-center">
+                              <div className="text-2xl font-bold text-green-700">{availableCount}</div>
+                              <div className="text-xs text-green-600">Free</div>
+                            </div>
+                            <div className="flex-1 bg-amber-100 rounded-lg p-2 text-center">
+                              <div className="text-2xl font-bold text-amber-700">{occupiedCount}</div>
+                              <div className="text-xs text-amber-600">Engaged</div>
+                            </div>
+                          </div>
+                          <div className="text-xs text-slate-500 mb-3 text-center">
+                            {occupiedCount > 0 ? `${occupiedCount} technician${occupiedCount > 1 ? 's' : ''} currently engaged with tasks` : 'No technicians engaged'}
+                          </div>
+                          <div className="space-y-2">
+                            {deptTechs.map(tech => (
+                              <div key={tech.id} className={`flex items-center justify-between border-2 rounded-lg p-3 ${tech.available ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'} transition-all duration-300`}>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <div>
+                                      <span className="font-medium">{tech.name}</span>
+                                      <span className="text-xs text-slate-500 ml-1">({tech.id})</span>
+                                    </div>
+                                    <div className={`text-xs px-2 py-0.5 rounded-full ${tech.available ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
+                                      {tech.available ? 'Free' : 'Engaged'}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs ${tech.available ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                                      <span className={`w-2 h-2 rounded-full ${tech.available ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`}></span>
+                                      {tech.available ? 'Available for new tasks' : 'Currently engaged'}
+                                    </span>
+                                  </div>
+                                  {!tech.available && tech.currentTask && (
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <WrenchIcon/>
+                                      <div className="text-xs text-amber-700">
+                                        Engaged with Task #{tech.currentTask}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className={`text-sm font-medium ${tech.available ? 'text-green-700' : 'text-amber-700'} flex items-center gap-1`}>
+                                  <span className={`w-2 h-2 rounded-full ${tech.available ? 'bg-green-500' : 'bg-amber-500'}`}></span>
+                                  {tech.available ? 'Ready' : 'Engaged'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                  <h3 className="font-semibold mb-3">Work Schedule</h3>
+                  <div className="text-sm text-slate-500 mb-4">View and manage technician schedules and assignments</div>
+                  <div className="space-y-3">
+                    {filtered.filter(r => r.status === "Assigned" || r.status === "In Progress").map(r => (
+                      <div key={r.id} className="border rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium">{r.category}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full border ${badgeColor(r.priority)}`}>{r.priority}</span>
+                        </div>
+                        <div className="text-sm text-slate-600">{r.department}</div>
+                        <div className="text-xs text-slate-500 mt-1">Status: {r.status}</div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button className="px-3 py-1.5 rounded-xl border text-sm">View Details</button>
+                          <button className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm">Update Status</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))} 
+          </main>
+          <footer className="max-w-6xl mx-auto px-4 pb-8 text-xs text-slate-500">
+            <p>Note: Demo stores data in your browser (localStorage). Replace with APIs + DB for production; add push/SMS/email for notifications.</p>
+          </footer>
+        </div>
+      );
+    }
+    function TabButton({label,active,onClick}){return(<button onClick={onClick} className={`px-3 py-1.5 rounded-full text-sm border ${active?"bg-slate-900 text-white border-slate-900":"bg-white hover:bg-slate-100 border-slate-300"}`}>{label}</button>)}
+  function ReportForm({onSubmit, publicProfile}){const [category,setCategory]=useState(CATEGORIES[0]);const [description,setDescription]=useState("");const [image,setImage]=useState(null);const [coords,setCoords]=useState({lat:"",lng:""});const [address,setAddress]=useState("");const [submitting,setSubmitting]=useState(false);const fileInput=useRef();
+      function useMyLocation(){if(!navigator.geolocation){alert("Geolocation not supported");return}navigator.geolocation.getCurrentPosition((pos)=>{const {latitude,longitude}=pos.coords;setCoords({lat:latitude.toFixed(6),lng:longitude.toFixed(6)})},()=>alert("Unable to fetch location"),{enableHighAccuracy:true,timeout:8000})}
+  async function handleSubmit(e){
+    e.preventDefault();
+    setSubmitting(true);
+    const photo=image?await fileToDataUrl(image):null;
+    const createdAt=new Date().toISOString();
+    const id=fakeId();
+    const priority=inferPriority(category,description);
+    const status="Submitted";
+    const department=assignDepartment(category);
+    
+    // Try to find and assign an available technician immediately
+    let assignedTech = null;
+    try {
+      assignedTech = assignTask(id, department);
+      // If technician assigned, create a notification
+      if (assignedTech) {
+        pushNotification({
+          id: Date.now(),
+          reportId: id,
+          message: `Your ${category} report has been automatically assigned to ${assignedTech.name}. They will begin work soon.`,
+          at: createdAt,
+          reporter: publicProfile || { name: "You" }
+        });
+      }
+    } catch (err) {
+      console.error('Failed to assign technician:', err);
+    }
+    
+    const reporter = publicProfile ? 
+      {name: publicProfile.name || 'You', phone: publicProfile.phone || '', photo: publicProfile.photo} : 
+      {name:"You",phone:"",email:""};
+    
+    const updates = [{
+      at: createdAt,
+      status: "Submitted",
+      note: "Report created by citizen"
+    }];
+    
+    // If a technician was assigned, add that to the updates
+    if (assignedTech) {
+      updates.push({
+        at: createdAt,
+        status: "Assigned",
+        note: `Automatically assigned to technician ${assignedTech.name} (${department} department)`
+      });
+    }
+    
+    const report = {
+      id,
+      createdAt,
+      category,
+      description,
+      photo,
+      coords,
+      address,
+      status: assignedTech ? "Assigned" : "Submitted",
+      priority,
+      department,
+      updates,
+      reporter,
+      review: null,
+      assignedTechnician: assignedTech ? assignedTech.id : null
+    };
+    
+    setTimeout(()=>dispatchSystemEvent({id:report.id,type:"ack"}),800);
+    onSubmit(report);
+    setSubmitting(false);
+    setCategory(CATEGORIES[0]);
+    setDescription("");
+    setImage(null);
+    setCoords({lat:"",lng:""});
+    setAddress("");
+  }
+      return(<div className="grid lg:grid-cols-3 gap-6"><div className="lg:col-span-2"><div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><h2 className="text-lg font-semibold mb-3">Report an Issue</h2><form onSubmit={handleSubmit} className="space-y-4"><div><label className="block text-sm text-slate-600 mb-1">Category</label><select value={category} onChange={(e)=>setCategory(e.target.value)} className="w-full border rounded-xl px-3 py-2">{CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select></div><div><label className="block text-sm text-slate-600 mb-1">Description</label><textarea value={description} onChange={(e)=>setDescription(e.target.value)} placeholder="Describe the issue…" className="w-full border rounded-xl px-3 py-2 min-h-[100px]"/></div><div className="flex items-center gap-3"><button type="button" onClick={()=>fileInput.current?.click()} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border"><Ico c="w-4 h-4"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l2-3h8l2 3h3a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></Ico> Add Photo</button><input ref={fileInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e)=>setImage(e.target.files?.[0]||null)}/>{image&&<span className="text-xs text-slate-600">Selected: {image.name}</span>}</div>{image&&(<img alt="preview" src={URL.createObjectURL(image)} className="rounded-xl border max-h-56 object-cover"/>)}
+      <div className="grid sm:grid-cols-3 gap-3"><div><label className="block text-sm text-slate-600 mb-1">Latitude</label><input value={coords.lat} onChange={(e)=>setCoords(c=>({...c,lat:e.target.value}))} className="w-full border rounded-xl px-3 py-2" placeholder="e.g., 23.3441"/></div><div><label className="block text-sm text-slate-600 mb-1">Longitude</label><input value={coords.lng} onChange={(e)=>setCoords(c=>({...c,lng:e.target.value}))} className="w-full border rounded-xl px-3 py-2" placeholder="e.g., 85.3096"/></div><div className="flex items-end"><button type="button" onClick={useMyLocation} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border"><MapPinIcon/> Use my location</button></div></div>
+      <div><label className="block text-sm text-slate-600 mb-1">Address (optional)</label><input value={address} onChange={(e)=>setAddress(e.target.value)} className="w-full border rounded-xl px-3 py-2" placeholder="Landmark / Street / Area"/></div>
+      <div className="pt-2"><button disabled={submitting} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white"><SendIcon/> Submit Report</button></div></form></div></div>
+      <div><div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><h3 className="font-semibold mb-2">How it works</h3><ol className="text-sm space-y-2 list-decimal list-inside"><li>Capture a photo and location.</li><li>Describe the issue and submit.</li><li>System auto‑routes to a department.</li><li>Track status: Acknowledged → Assigned → In Progress → Resolved.</li><li>Rate the resolution when closed.</li></ol><div className="mt-4 p-3 rounded-xl bg-amber-50 border text-amber-700 text-sm flex gap-2"><BellIcon/> This demo uses localStorage. Replace with secure APIs and add notifications for production.</div></div></div></div>)}
+  function CitizenView({reports,setReports,publicProfile}){
+    function isMine(r){
+      if(!r || !r.reporter) return false;
+      if(publicProfile){
+        // match by photo, name or phone when possible
+        if(publicProfile.photo && r.reporter.photo && publicProfile.photo===r.reporter.photo) return true;
+        if(publicProfile.name && r.reporter.name && publicProfile.name===r.reporter.name) return true;
+        if(publicProfile.phone && r.reporter.phone && publicProfile.phone===r.reporter.phone) return true;
+      }
+      // fallback to legacy 'You' marker
+      return r.reporter.name==="You";
+    }
+    const myReports=reports.filter(isMine);
+    const [notifications,setNotifications]=useState(loadNotifications());
+    function advance(id){setReports(prev=>prev.map(r=>r.id===id?({...r,status:nextStatus(r.status),updates:[...r.updates,{at:new Date().toISOString(),status:nextStatus(r.status),note:"Status updated (demo)"}]}):r))}
+    function saveReview(id,rating,comment){setReports(prev=>prev.map(r=>r.id===id?({...r,review:{rating,comment,at:new Date().toISOString()}}):r))}
+    function dismissNotification(nid){const next=notifications.filter(n=>n.id!==nid);setNotifications(next);saveNotifications(next)}
+    const myNotifs=notifications.filter(n=>{const rep=n.reporter||{};return !n.reporter||isMine({reporter:rep})||n.reportId&&myReports.some(r=>r.id===n.reportId)});
+    return(<section className="space-y-3"><h2 className="text-lg font-semibold">Your submitted reports</h2>{myNotifs.length>0&&(<div className="space-y-2"><h3 className="text-sm font-semibold">Notifications</h3>{myNotifs.map(n=>(<div key={n.id} className="bg-white rounded-xl p-3 border flex items-start justify-between"><div><div className="text-sm text-slate-700">{n.message}</div><div className="text-xs text-slate-500 mt-1">{fmtDate(n.at)}</div></div><button onClick={()=>dismissNotification(n.id)} className="ml-4 text-xs text-slate-500">Dismiss</button></div>))}</div>)}<div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">{myReports.length===0&&<EmptyCard message="No reports yet. Submit your first civic issue!"/>}{myReports.map(r=><ReportCard key={r.id} r={r} onAdvance={()=>advance(r.id)} onSaveReview={saveReview}/>)}</div></section>)}
+  function AdminView({reports,allReports,setReports,filters,setFilters,showPriority=true}){
+    const [selection,setSelection]=useState([]);
+    const { assignTask } = useTechnicians();
+    
+    function toggle(id){
+      setSelection(sel=>sel.includes(id)?sel.filter(x=>x!==id):[...sel,id]);
+    }
+    
+    function bulkAdvance(){
+      setReports(prev=>prev.map(r=>selection.includes(r.id)?
+        ({...r,status:nextStatus(r.status),updates:[...r.updates,{at:new Date().toISOString(),status:nextStatus(r.status),note:"Admin bulk advanced"}]})
+        :r));
+      setSelection([]);
+    }
+    
+    function assign(id,dept){
+      setReports(prev=>prev.map(r=>r.id===id?
+        ({...r,department:dept,updates:[...r.updates,{at:new Date().toISOString(),status:r.status,note:`Reassigned to ${dept}`}] })
+        :r));
+    }
+    
+    // Function to assign a technician to a report
+    function assignTechnician(report) {
+      const tech = assignTask(report.id, report.department);
+      if (tech) {
+        const now = new Date().toISOString();
+        setReports(prev => prev.map(r => r.id === report.id ? {
+          ...r,
+          status: "Assigned",
+          assignedTechnician: tech.id,
+          updates: [
+            ...r.updates,
+            {
+              at: now,
+              status: "Assigned",
+              note: `Manually assigned to technician ${tech.name} (${report.department})`
+            }
+          ]
+        } : r));
+        
+        // Create notification
+        pushNotification({
+          id: Date.now(),
+          reportId: report.id,
+          message: `Your ${report.category} report has been assigned to ${tech.name}. They will begin work soon.`,
+          at: now,
+          reporter: report.reporter
+        });
+      } else {
+        alert('No free technicians available in ' + report.department);
+      }
+    }
+      const stats=useMemo(()=>{const byStatus=Object.fromEntries(STATUS_FLOW.map(s=>[s,0]));const byCat=Object.fromEntries(CATEGORIES.map(c=>[c,0]));const byDept=Object.values(DEPARTMENTS).reduce((a,d)=>(a[d]=0,a),{});let ratingSum=0,ratingCount=0;allReports.forEach(r=>{byStatus[r.status]=(byStatus[r.status]||0)+1;byCat[r.category]=(byCat[r.category]||0)+1;byDept[r.department]=(byDept[r.department]||0)+1;if(r.review&&typeof r.review.rating==="number"){ratingSum+=r.review.rating;ratingCount+=1}});return{byStatus,byCat,byDept,total:allReports.length,avgRating:ratingCount?(ratingSum/ratingCount):0,ratingCount}},[allReports]);
+      return(<div className="space-y-6"><div className="grid lg:grid-cols-5 gap-4"><StatCard title="Total Reports" value={stats.total} icon={<AlertIcon/>}/><StatCard title="Submitted" value={stats.byStatus['Submitted']} icon={<ClockIcon/>}/><StatCard title="In Progress" value={stats.byStatus['In Progress']} icon={<WrenchIcon/>}/><StatCard title="Resolved" value={stats.byStatus['Resolved']} icon={<CheckIcon/>}/><div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><div className="flex items-center gap-2 text-slate-600 text-sm"><StarIcon className="text-amber-500"/> Avg Rating</div><div className="text-2xl font-semibold mt-1 flex items-baseline gap-1">{stats.avgRating.toFixed(1)}<span className="text-xs text-slate-500">({stats.ratingCount})</span></div></div></div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><div className="flex flex-col sm:flex-row gap-3 sm:items-end sm:justify-between"><div><h3 className="font-semibold mb-1">Incoming Reports</h3><p className="text-sm text-slate-500">Filter, select, and advance status. Auto‑routing suggests department based on category. Ratings appear after resolution.</p></div><div className="flex flex-wrap gap-2"><FilterSelect label="Category" value={filters.category} onChange={(v)=>setFilters(f=>({...f,category:v}))} options={["",...CATEGORIES]}/><FilterSelect label="Status" value={filters.status} onChange={(v)=>setFilters(f=>({...f,status:v}))} options={["",...STATUS_FLOW]}/><FilterSelect label="Priority" value={filters.priority} onChange={(v)=>setFilters(f=>({...f,priority:v}))} options={["",...PRIORITIES]}/><button onClick={bulkAdvance} disabled={selection.length===0} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border"><WrenchIcon/> Advance Selected</button></div></div>
+  <div className="mt-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{reports.length===0&&<EmptyCard message="No matching reports. Try different filters."/>}{reports.map(r=>(<div key={r.id} className={`rounded-2xl border ${selection.includes(r.id)?"border-slate-900":"border-slate-200"}`}><div className="p-3 flex items-center justify-between"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selection.includes(r.id)} onChange={()=>toggle(r.id)}/><span className="font-medium">{r.category}</span>{showPriority && <span className={`ml-2 text-xs px-2 py-0.5 rounded-full border ${badgeColor(r.priority)}`}>{r.priority}</span>}</label><span className="text-xs text-slate-500">{fmtDate(r.createdAt)}</span></div>{r.photo&&<img alt="report" src={r.photo} className="w-full h-40 object-cover"/>}<div className="p-3 space-y-2 text-sm"><p className="line-clamp-3">{r.description}</p><div className="flex items-center gap-2 text-slate-600"><MapPinIcon/> {r.coords.lat&&r.coords.lng?`${r.coords.lat}, ${r.coords.lng}`:"Location N/A"}</div><div className="flex items-center gap-2 text-slate-600"><ClockIcon/> {r.status}</div><div className="flex items-center gap-2 text-slate-600"><WrenchIcon/> Dept: {r.department}</div>{r.review&&(<div className="mt-1"><div className="text-slate-600 text-xs">Citizen rating:</div><StarsDisplay rating={r.review.rating}/>{r.review.comment&&<div className="text-xs text-slate-500 mt-1">“{r.review.comment}”</div>}</div>)}<div className="flex items-center gap-2"><label className="text-slate-600">Reassign:</label><select value={r.department} onChange={(e)=>assign(r.id,e.target.value)} className="border rounded-xl px-2 py-1">{Object.values(DEPARTMENTS).map(d=><option key={d} value={d}>{d}</option>)}</select>
+        <div className="flex items-center gap-2">
+          <button onClick={()=>deleteReport(r.id,setReports)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 text-xs">
+            <TrashIcon/> Delete
+          </button>
+          
+          {/* Assign Technician button - only show if not already assigned */}
+          {!r.assignedTechnician && r.status !== "Resolved" && (
+            <button 
+              onClick={() => assignTechnician(r)}
+              className="inline-flex items-center gap-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs px-2 py-1 rounded-xl border border-blue-200"
+            >
+              <WrenchIcon/> Assign Technician
+            </button>
+          )}
+          
+          {/* Resolve & Notify button */}
+          <button 
+            onClick={()=>{
+              setReports(prev=>prev.map(x=>x.id===r.id?
+                ({...x,status:'Resolved',updates:[...x.updates,{at:new Date().toISOString(),status:'Resolved',note:'Marked resolved by admin'}]})
+                :x)); 
+              pushNotification({
+                id:Date.now(),
+                reportId:r.id,
+                message:`Your report (${r.category}) has been resolved.`,
+                at:new Date().toISOString(),
+                reporter:r.reporter
+              });
+            }} 
+            className="inline-flex items-center gap-1 text-green-700 hover:text-green-900 text-xs px-2 py-1 rounded-xl border"
+          >
+            Mark Resolved & Notify
+          </button>
+        </div></div></div></div>))}</div></div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><h3 className="font-semibold mb-2">Hotspots (by volume)</h3><HotspotHeatlist reports={allReports}/></div></div>)}
+    function ReportCard({r,onAdvance,onSaveReview}){
+      const [showReview,setShowReview]=useState(false);
+      const canReview=r.status==="Resolved";
+      // Find the assigned technician's name from the updates
+      const assignedUpdate = r.updates.find(u => u.status === "Assigned");
+      const technicianName = assignedUpdate ? assignedUpdate.note.match(/assigned to technician (.*?) \(/)?.[1] : null;
+      
+      return(<div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        {r.photo&&<img alt="report" src={r.photo} className="w-full h-40 object-cover"/>}
+        <div className="p-3 space-y-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-medium">{r.category}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full border ${badgeColor(r.priority)}`}>{r.priority}</span>
+          </div>
+          <p className="line-clamp-3">{r.description}</p>
+          <div className="flex items-center gap-2 text-slate-600">
+            <MapPinIcon/> {r.coords.lat&&r.coords.lng?`${r.coords.lat}, ${r.coords.lng}`:"Location N/A"}
+          </div>
+          <div className="flex items-center gap-2 text-slate-600">
+            <ClockIcon/> {r.status}
+          </div>
+          <div className="text-xs text-slate-500">{fmtDate(r.createdAt)} • Dept: {r.department}</div>
+          {technicianName && (
+            <div className="flex items-center gap-2 text-slate-600">
+              <WrenchIcon/> Assigned to: {technicianName}
+            </div>
+          )}<div className="pt-1 flex flex-wrap gap-2"><button onClick={onAdvance} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border"><WrenchIcon/> Advance status</button>{canReview&&!r.review&&(<button onClick={()=>setShowReview(v=>!v)} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border">Rate Resolution</button>)}</div>{canReview&&!r.review&&showReview&&(<ReviewForm onCancel={()=>setShowReview(false)} onSave={(rating,comment)=>{onSaveReview(r.id,rating,comment);setShowReview(false)}}/>)}
+      {r.review&&(<div className="mt-2 border rounded-xl p-2"><div className="text-slate-600 text-xs mb-1">Your Review</div><StarsDisplay rating={r.review.rating}/>{r.review.comment&&<div className="text-xs text-slate-600 mt-1">“{r.review.comment}”</div>}</div>)}</div></div>)}
+    function ReviewForm({onSave,onCancel}){const [rating,setRating]=useState(0);const [hover,setHover]=useState(0);const [comment,setComment]=useState("");return(<div className="mt-2 border rounded-xl p-3 bg-slate-50"><div className="text-sm font-medium mb-2">Rate the resolution</div><div className="flex items-center gap-1 mb-2">{[1,2,3,4,5].map(n=>(<button key={n} type="button" onMouseEnter={()=>setHover(n)} onMouseLeave={()=>setHover(0)} onClick={()=>setRating(n)} className={`p-1 ${(hover||rating)>=n?'text-amber-500':'text-slate-400'}`} aria-label={`${n} star`}><StarIcon filled={(hover||rating)>=n}/></button>))}<span className="text-xs text-slate-600 ml-2">{rating?`${rating}/5`:"Select rating"}</span></div><textarea value={comment} onChange={(e)=>setComment(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Optional feedback (what was good / what to improve)"/><div className="mt-2 flex gap-2"><button disabled={!rating} onClick={()=>onSave(rating,comment.trim())} className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm">Submit</button><button onClick={onCancel} className="px-3 py-1.5 rounded-xl border text-sm">Cancel</button></div></div>)}
+    function StarsDisplay({rating}){return(<div className="flex items-center gap-0.5 text-amber-500">{[1,2,3,4,5].map(n=><StarIcon key={n} filled={n<=rating}/>)}</div>)}
+    function FilterSelect({label,value,onChange,options}){return(<label className="text-sm flex items-center gap-2"><span className="text-slate-600">{label}</span><select value={value} onChange={(e)=>onChange(e.target.value)} className="border rounded-xl px-2 py-1">{options.map(o=><option key={o} value={o}>{o||"All"}</option>)}</select></label>)}
+    function StatCard({title,value,icon}){return(<div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><div className="flex items-center gap-2 text-slate-600 text-sm">{icon} {title}</div><div className="text-2xl font-semibold mt-1">{value}</div></div>)}
+    function EmptyCard({message}){return <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 text-center text-slate-500">{message}</div>}
+    function HotspotHeatlist({reports}){const buckets={};reports.forEach(r=>{const key=(r.coords.lat&&r.coords.lng)?`${Number(r.coords.lat).toFixed(3)},${Number(r.coords.lng).toFixed(3)}`:"Unspecified";buckets[key]=(buckets[key]||0)+1});const items=Object.entries(buckets).sort((a,b)=>b[1]-a[1]).slice(0,8);return(<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">{items.map(([k,v])=>(<div key={k} className="border rounded-xl p-3 flex items-center justify-between"><div className="flex items-center gap-2 text-slate-600"><MapPinIcon/> {k}</div><div className="text-slate-900 font-semibold">{v}</div></div>))}</div>)}
+    function deleteReport(id,setReports){setReports(prev=>prev.filter(r=>r.id!==id))}
+    function GovIdUploader({onSave}){
+      const [file,setFile]=useState(null);
+      const [preview,setPreview]=useState(null);
+      useEffect(()=>{if(!file){setPreview(null);return}const fr=new FileReader();fr.onload=()=>setPreview(fr.result);fr.readAsDataURL(file)},[file]);
+      return(
+        <div className="space-y-3">
+          <div className="flex items-center justify-center">
+            <label className="inline-flex flex-col items-center px-4 py-2 bg-slate-50 rounded-xl border cursor-pointer">
+              <div className="text-sm text-slate-600">Click to select image</div>
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e)=>setFile(e.target.files?.[0]||null)}/>
+            </label>
+          </div>
+          {preview&&(
+            <div className="flex items-center justify-center">
+              <img src={preview} alt="preview" className="w-48 h-28 object-cover rounded-md border"/>
+            </div>
+          )}
+          <div className="flex items-center gap-2 justify-center">
+            <button onClick={()=>{if(!preview){alert('Please select an image first');return}onSave(preview)}} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Save ID</button>
+          </div>
+        </div>
+      )
+    }
+    const root=ReactDOM.createRoot(document.getElementById("root")); root.render(<App/>);
+  </script>
+</body>
+</html>

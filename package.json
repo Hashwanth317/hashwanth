@@ -1,0 +1,15 @@
+{
+  "name": "civic-issue-reporter-backend",
+  "version": "0.2.0",
+  "description": "Minimal Express backend for the Civic Issue Reporter prototype (with reviews)",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}
