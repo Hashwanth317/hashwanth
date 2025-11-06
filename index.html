@@ -258,46 +258,59 @@
       if(!userType) {
         const bgUrl = `url("./background civic.png.jpg")`;
         return (
-          <div className="min-h-screen flex items-center justify-center" style={{backgroundImage: bgUrl, backgroundSize:'cover', backgroundPosition:'center'}}>
-            <div className="rounded-2xl p-8 w-full max-w-sm text-center backdrop text-blur-white/95 bg-transparent">
-              <h2 className="text-2xl sm:text-3xl font-bold mb-3">Login</h2>
-              <p className="mb-6 text-lg text-white/90">Select your role to continue:</p>
+          <div className="min-h-screen flex items-center justify-center relative" style={{backgroundImage: bgUrl, backgroundSize:'cover', backgroundPosition:'center'}}>
+            <div className="absolute inset-0 bg-black/25 backdrop-blur-[2px]"></div>
+            <div className="relative z-10 rounded-3xl p-10 w-full max-w-md text-center bg-white/5 backdrop-blur-sm shadow-2xl border border-white/10 transform transition-all duration-300 hover:scale-[1.02]">
+              <h2 className="text-3xl sm:text-4xl font-bold mb-4 text-white bg-clip-text">Welcome Back</h2>
+              <p className="mb-8 text-lg text-white/90 font-light">Please select your role to continue:</p>
               {!pendingPublicLogin ? (
                 <>
-                  <div className="flex flex-col gap-4">
-                    <button className="px-5 py-3 rounded-xl bg-slate-900 text-white font-semibold text-lg" onClick={()=>setPendingPublicLogin(true)}>Public Login</button>
-                    <button className="px-5 py-3 rounded-xl bg-blue-700 text-white font-semibold text-lg" onClick={()=>setUserType("government")}>Government Login</button>
-                     <div className="relative">
-                       <div className="absolute inset-0 flex items-center">
-                         <div className="w-full border-t border-white/20"></div>
-                       </div>
-                       <div className="relative flex justify-center">
-                         <span className="px-2 text-sm text-white/60 bg-black/20">or</span>
-                       </div>
-                     </div>
-                     <div className="space-y-3">
-                       <input 
-                         type="text" 
-                         value={techLoginId}
-                         onChange={(e) => {
-                           setTechLoginId(e.target.value);
-                           setTechError("");
-                         }}
-                         placeholder="Enter Technician ID (e.g., pw1, el2)"
-                         className="w-full px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50"
-                       />
-                       <button 
-                         className="w-full px-5 py-3 rounded-xl bg-amber-600 text-white font-semibold text-lg"
-                         onClick={() => handleTechnicianLogin(techLoginId)}
-                       >
-                         Technician Login
-                       </button>
-                       {techError && (
-                         <div className="text-red-300 text-sm mt-2">{techError}</div>
-                       )}
-                     </div>
+                  <div className="flex flex-col gap-5">
+                    <button 
+                      className="px-6 py-4 rounded-2xl bg-gradient-to-r from-slate-800 to-slate-900 text-white font-semibold text-lg shadow-lg hover:shadow-xl transform transition-all duration-300 hover:-translate-y-1 hover:from-slate-700 hover:to-slate-800" 
+                      onClick={()=>setPendingPublicLogin(true)}
+                    >
+                      Public Login
+                    </button>
+                    <button 
+                      className="px-6 py-4 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold text-lg shadow-lg hover:shadow-xl transform transition-all duration-300 hover:-translate-y-1 hover:from-blue-500 hover:to-blue-600" 
+                      onClick={()=>setUserType("government")}
+                    >
+                      Government Login
+                    </button>
+                    <div className="relative my-2">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-white/20"></div>
+                      </div>
+                      <div className="relative flex justify-center">
+                        <span className="px-4 text-sm text-white/70 bg-white/5 backdrop-blur-sm rounded-full py-1">or continue as</span>
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <input 
+                        type="text" 
+                        value={techLoginId}
+                        onChange={(e) => {
+                          setTechLoginId(e.target.value);
+                          setTechError("");
+                        }}
+                        placeholder="Enter Technician ID (e.g., pw1, el2)"
+                        className="w-full px-6 py-4 rounded-xl bg-white/5 border border-white/10 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 focus:border-transparent transition-all duration-300"
+                      />
+                      <button 
+                        className="w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-amber-500/90 to-amber-600/90 text-white font-semibold text-lg shadow-lg hover:shadow-xl transform transition-all duration-300 hover:-translate-y-1 hover:from-amber-400 hover:to-amber-500"
+                        onClick={() => handleTechnicianLogin(techLoginId)}
+                      >
+                        Technician Login
+                      </button>
+                      {techError && (
+                        <div className="text-red-300 text-sm mt-2 bg-red-500/5 py-2 px-4 rounded-lg backdrop-blur-sm">{techError}</div>
+                      )}
+                    </div>
                   </div>
-                  <div className="mt-4 text-sm text-white/80">If logging in as government, you will be asked to upload an ID proof image.</div>
+                  <div className="mt-6 text-sm text-white/70 bg-white/5 p-3 rounded-xl backdrop-blur-[2px]">
+                    Note: Government login requires ID proof image upload.
+                  </div>
                 </>
               ) : (
                 <div className="bg-white/5 rounded-xl p-4 mt-4 text-left text-sm">
