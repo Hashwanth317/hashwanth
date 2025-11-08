@@ -386,16 +386,18 @@
               <nav className="flex gap-1">
                 <TabButton label="Report" active={tab==="report"} onClick={()=>setTab("report")}/>
                 {userType==="public" && <TabButton label="My Reports" active={tab==="my"} onClick={()=>setTab("my")}/>} 
-                {userType === 'government' && !govProfile ? (
-                  <>
-                    <button title="Upload ID to access admin" className="px-3 py-1.5 rounded-full text-sm border bg-white text-slate-400 border-slate-200 cursor-not-allowed">Admin 🔒</button>
-                    <button title="Upload ID to access technicians" className="px-3 py-1.5 rounded-full text-sm border bg-white text-slate-400 border-slate-200 cursor-not-allowed">Technicians 🔒</button>
-                  </>
-                ) : (
-                  <>
-                    <TabButton label="Admin" active={tab==="admin"} onClick={()=>setTab("admin")}/>
-                    <TabButton label="Technicians" active={tab==="technicians"} onClick={()=>setTab("technicians")}/>
-                  </>
+                {userType === 'government' && (
+                  !govProfile ? (
+                    <>
+                      <button title="Upload ID to access admin" className="px-3 py-1.5 rounded-full text-sm border bg-white text-slate-400 border-slate-200 cursor-not-allowed">Admin 🔒</button>
+                      <button title="Upload ID to access technicians" className="px-3 py-1.5 rounded-full text-sm border bg-white text-slate-400 border-slate-200 cursor-not-allowed">Technicians 🔒</button>
+                    </>
+                  ) : (
+                    <>
+                      <TabButton label="Admin" active={tab==="admin"} onClick={()=>setTab("admin")}/>
+                      <TabButton label="Technicians" active={tab==="technicians"} onClick={()=>setTab("technicians")}/>
+                    </>
+                  )
                 )}
               </nav>
               <div className="ml-4 flex items-center gap-2">
