@@ -257,15 +257,24 @@
         filtered.forEach(r=>{ if(r && r.category){ out[r.category] = (out[r.category]||0) + 1 }});
         return out;
       },[filtered]);
-      if(!userType) {
+  const [aboutOpen,setAboutOpen] = useState(false);
+  if(!userType) {
         const bgUrl = `url("./rb.png")`;
         return (
           <div className="min-h-screen flex items-center justify-center relative" style={{backgroundImage: bgUrl, backgroundSize:'cover', backgroundPosition:'center'}}>
             {/* slightly reduced overlay so background shows through more */}
             <div className="absolute inset-0 bg-black/10 backdrop-blur-[2px]"></div>
-            {/* login card: centered on small screens, fixed to top-right on larger screens
+            {/* centered official-style header (clickable to open About modal) */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div role="button" tabIndex={0} onClick={()=>setAboutOpen(true)} onKeyDown={(e)=>{if(e.key==='Enter'||e.key===' ')setAboutOpen(true)}} className="text-center text-white px-4 cursor-pointer select-none" style={{zIndex:0}}>
+                <div className="text-2xl sm:text-4xl font-semibold tracking-wide drop-shadow-lg">GOVERNMENT OF INDIA</div>
+                <div className="text-lg sm:text-xl mt-1 drop-shadow">भारत सरकार • Centralised Civic Issue Reporting</div>
+                <div className="text-xs mt-2 opacity-90">Prototype / Demo — Not an official government portal</div>
+              </div>
+            </div>
+      {/* login card: centered on small screens, fixed to top-right on larger screens
                 translucent on desktop to match background */}
-            <div className="relative z-10 rounded-3xl p-6 w-full max-w-md text-center bg-white/95 text-slate-900 shadow-2xl border border-slate-200 transform transition-all duration-300 hover:scale-[1.02] sm:fixed sm:top-6 sm:right-6 sm:max-w-sm sm:rounded-2xl sm:bg-black/30 sm:text-white sm:border-white/20 sm:backdrop-blur-sm">
+      <div className="relative z-30 rounded-3xl p-6 w-full max-w-md text-center bg-white/95 text-slate-900 shadow-2xl border border-slate-200 transform transition-all duration-300 hover:scale-[1.02] sm:fixed sm:top-6 sm:right-6 sm:max-w-sm sm:rounded-2xl sm:bg-black/30 sm:text-white sm:border-white/20 sm:backdrop-blur-sm">
               <h2 className="text-3xl font-bold mb-2 sm:text-white text-slate-900">Welcome Back</h2>
               <p className="mb-6 text-base font-medium sm:text-slate-200 text-slate-600">Choose how you'd like to continue — public, government or technician.</p>
               {!pendingPublicLogin && !pendingGovLogin ? (
@@ -626,6 +635,31 @@
               </div>
             ))} 
           </main>
+          {aboutOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+              <div className="max-w-2xl w-full mx-4">
+                <div className="bg-white rounded-2xl p-6 text-slate-900 shadow-2xl">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-semibold">About — GOVERNMENT OF INDIA</h2>
+                      <div className="text-sm text-slate-600 mt-2">
+                        This is a prototype civic issue reporting demo created for demonstration purposes. It stores data locally in your browser and is not an official government portal.
+                      </div>
+                      <div className="text-sm text-slate-700 mt-3">
+                        यह एक प्रोटोटाइप है और केवल डेमो के लिए है। यह आधिकारिक सरकार पोर्टल नहीं है और सभी डेटा केवल आपके ब्राउज़र में स्थानीय रूप से संग्रहीत होते हैं।
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <button onClick={()=>setAboutOpen(false)} className="px-3 py-2 rounded-lg bg-slate-100 border">Close</button>
+                    </div>
+                  </div>
+                  <div className="mt-4 text-xs text-slate-500">
+                    <strong>Disclaimer:</strong> For production use replace localStorage persistence with secure server-side APIs, add authentication, and ensure legal compliance before using official emblems or branding.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <footer className="max-w-6xl mx-auto px-4 pb-8 text-xs text-slate-500">
             <p>Note: Demo stores data in your browser (localStorage). Replace with APIs + DB for production; add push/SMS/email for notifications.</p>
           </footer>
