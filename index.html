@@ -839,24 +839,32 @@
             </button>
           )}
           
-          {/* Resolve & Notify button */}
-          <button 
-            onClick={()=>{
-              setReports(prev=>prev.map(x=>x.id===r.id?
-                ({...x,status:'Resolved',updates:[...x.updates,{at:new Date().toISOString(),status:'Resolved',note:'Marked resolved by admin'}]})
-                :x)); 
-              pushNotification({
-                id:Date.now(),
-                reportId:r.id,
-                message:`Your report (${r.category}) has been resolved.`,
-                at:new Date().toISOString(),
-                reporter:r.reporter
-              });
-            }} 
-            className="inline-flex items-center gap-1 text-green-700 hover:text-green-900 text-xs px-2 py-1 rounded-xl border"
-          >
-            Mark Resolved & Notify
-          </button>
+          {/* Resolve & Notify button - only enabled when status is Pending Review */}
+          {r.status === "Pending Review" ? (
+            <button 
+              onClick={()=>{
+                setReports(prev=>prev.map(x=>x.id===r.id?
+                  ({...x,status:'Resolved',updates:[...x.updates,{at:new Date().toISOString(),status:'Resolved',note:'Marked resolved by admin after technician completion'}]})
+                  :x)); 
+                pushNotification({
+                  id:Date.now(),
+                  reportId:r.id,
+                  message:`Your report (${r.category}) has been reviewed and marked as resolved.`,
+                  at:new Date().toISOString(),
+                  reporter:r.reporter
+                });
+              }} 
+              className="inline-flex items-center gap-1 bg-green-100 text-green-700 hover:bg-green-200 text-xs px-2 py-1 rounded-xl border border-green-200"
+            >
+              <CheckIcon/> Mark Resolved & Notify
+            </button>
+          ) : (
+            r.status !== "Resolved" && (
+              <span className="text-xs text-slate-500">
+                {r.status === "In Progress" ? "Waiting for technician to complete work" : "Assign to technician first"}
+              </span>
+            )
+          )}
         </div></div></div></div>))}</div></div>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><h3 className="font-semibold mb-2">Hotspots (by volume)</h3><HotspotHeatlist reports={allReports}/></div></div>)}
     function ReportCard({r,onAdvance,onSaveReview}){
