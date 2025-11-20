@@ -186,6 +186,7 @@
     }
     function App(){
       const [tab,setTab]=useState("report");
+      const [mobileNavOpen, setMobileNavOpen] = useState(false);
       const [reports,setReports]=useReports();
       const [filters,setFilters]=useState({category:"",status:"",priority:""});
       const [userType,setUserType]=useState(""); // "public" or "government"
@@ -386,7 +387,14 @@
                   </div>
                 )}
               </div>
-              <nav className="flex gap-1">
+              <div className="flex items-center gap-3">
+                {/* Mobile nav toggle */}
+                <button className="sm:hidden p-2 rounded-md text-slate-600 hover:bg-slate-100" onClick={()=>setMobileNavOpen(v=>!v)} aria-label="Toggle navigation">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </button>
+                <nav className="hidden sm:flex gap-1">
                 <TabButton label="Report" active={tab==="report"} onClick={()=>setTab("report")}/>
                 {userType==="public" && <TabButton label="My Reports" active={tab==="my"} onClick={()=>setTab("my")}/>} 
                 {userType === 'government' && (
@@ -402,7 +410,28 @@
                     </>
                   )
                 )}
-              </nav>
+                </nav>
+              </div>
+              {/* Mobile nav menu */}
+              {mobileNavOpen && (
+                <div className="sm:hidden absolute top-full left-0 right-0 bg-white border-t border-slate-200 z-20">
+                  <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-2">
+                    <button onClick={()=>{setTab('report'); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">Report</button>
+                    {userType==='public' && <button onClick={()=>{setTab('my'); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">My Reports</button>}
+                    {userType==='government' && (
+                      govProfile ? (
+                        <>
+                          <button onClick={()=>{setTab('admin'); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">Admin</button>
+                          <button onClick={()=>{setTab('technicians'); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">Technicians</button>
+                        </>
+                      ) : (
+                        <div className="text-slate-500 text-sm px-3 py-2">Upload gov ID to unlock Admin & Technicians</div>
+                      )
+                    )}
+                    <button onClick={()=>{setUserType(''); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">Logout</button>
+                  </div>
+                </div>
+              )}
               <div className="ml-4 flex items-center gap-2">
                 <span className="text-xs px-2 py-1 rounded bg-slate-200">{userType === "public" ? "Public" : "Government"}</span>
                 <button className="text-xs underline text-blue-600" onClick={()=>setUserType("")}>Logout</button>
