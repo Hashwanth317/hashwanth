@@ -22,6 +22,9 @@
     const techniciansKey="civic-technicians-v1";
     const fakeId=()=>Math.random().toString(36).slice(2,10);
     
+    
+
+    
     // Initial technicians data per department
     const INITIAL_TECHNICIANS = {
       "Public Works": [
@@ -662,6 +665,7 @@
               </div>
             </div>
           )}
+          {userType === 'public' && <ChatWidget publicProfile={publicProfile} />}
           <footer className="max-w-6xl mx-auto px-4 pb-8 text-xs text-slate-500">
             <p>Note: Demo stores data in your browser (localStorage). Replace with APIs + DB for production; add push/SMS/email for notifications.</p>
           </footer>
@@ -925,6 +929,77 @@
         </div>
       )
     }
+    
+      // Simple rule-based chatbot for public guidance
+      function ChatWidget({publicProfile}){
+        const [open,setOpen]=useState(false);
+        const [messages,setMessages]=useState([{
+          from:'bot',
+          text: 'Hello! I can help you file a report, check status, or explain how this demo works. Try: "How do I report?" or "Check my report status".'
+        }]);
+        const [input,setInput]=useState('');
+        const scrollRef = useRef();
+
+        useEffect(()=>{ if(open){ setTimeout(()=>{ scrollRef.current?.scrollTo({top: scrollRef.current.scrollHeight, behavior:'smooth'}) },100) } },[messages,open]);
+
+        function pushUser(text){
+          if(!text||!text.trim())return;
+          const t = text.trim();
+          setMessages(prev=>[...prev,{from:'user',text:t}]);
+          setInput('');
+          // simple bot reply after delay
+          setTimeout(()=>{
+            const low = t.toLowerCase();
+            let reply = "Sorry, I didn't understand. Ask about reporting, status, Aadhaar, or technicians.";
+            if(low.includes('how') && low.includes('report')){
+              reply = 'To report: click "Report" → choose category → add description & photo → submit. The system will auto‑assign a department.';
+            } else if(low.includes('status') || low.includes('check')){
+              reply = 'To check status: open "My Reports" (top nav) — you will see all reports you submitted in this browser.';
+            } else if(low.includes('aadhaar')||low.includes('aadhar')){
+              reply = 'Public login uses a 12‑digit Aadhaar number. Enter it on Public Login to save your profile locally for the demo.';
+            } else if(low.includes('technician')||low.includes('assign')){
+              reply = 'Technicians are assigned automatically when available or can be assigned by an admin. Statuses: Assigned → In Progress → Pending Review → Resolved.';
+            } else if(low.includes('contact')||low.includes('phone')){
+              reply = 'You can optionally add your phone when saving your profile — used only for demo identification.';
+            } else if(low.includes('help')||low.includes('guide')){
+              reply = 'I can guide you through the public flows: logging in, filing a report, and viewing your reports. Ask any one of those.';
+            }
+            setMessages(prev=>[...prev,{from:'bot',text:reply}]);
+          }, 500);
+        }
+
+        return (
+          <div className="fixed right-4 bottom-4 z-50">
+            {!open && (
+              <button onClick={()=>setOpen(true)} aria-label="Open chat" className="w-14 h-14 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center">?
+              </button>
+            )}
+            {open && (
+              <div className="w-80 sm:w-96 bg-white rounded-2xl shadow-xl border overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-blue-600 text-white">
+                  <div className="font-semibold">Public Assistant</div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>{ setOpen(false) }} className="px-2 py-1 rounded bg-white/10">Close</button>
+                  </div>
+                </div>
+                <div ref={scrollRef} className="h-56 overflow-y-auto p-3 space-y-2 bg-slate-50">
+                  {messages.map((m,i)=>(
+                    <div key={i} className={`flex ${m.from==='bot'?'justify-start':'justify-end'}`}>
+                      <div className={`max-w-[80%] px-3 py-2 rounded-xl ${m.from==='bot'?'bg-white border':'bg-blue-600 text-white'}`}>
+                        {m.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="p-2 bg-white border-t flex gap-2">
+                  <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ pushUser(input) } }} placeholder="Ask me (e.g., how to report)" className="flex-1 px-3 py-2 rounded-xl border" />
+                  <button onClick={()=>pushUser(input)} className="px-3 py-2 rounded-xl bg-blue-600 text-white">Send</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
     const root=ReactDOM.createRoot(document.getElementById("root")); root.render(<App/>);
   </script>
 </body>
