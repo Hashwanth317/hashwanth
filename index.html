@@ -188,6 +188,16 @@
       const [tab,setTab]=useState("report");
       const [mobileNavOpen, setMobileNavOpen] = useState(false);
       const [reports,setReports]=useReports();
+      // Listen to lightweight system events dispatched by widgets (e.g., ChatWidget)
+      useSystemEvents((e)=>{
+        if(!e || !e.type) return;
+        if(e.type === 'open-report'){
+          setTab('report');
+        }
+        if(e.type === 'open-my-reports'){
+          setTab('my');
+        }
+      });
       const [filters,setFilters]=useState({category:"",status:"",priority:""});
       const [userType,setUserType]=useState(""); // "public" or "government"
       const [govProfile,setGovProfile]=useState(()=>{try{return JSON.parse(localStorage.getItem('govProfile')||"null")}catch{return null}});
@@ -969,6 +979,15 @@
         const [input,setInput]=useState('');
         const scrollRef = useRef();
 
+        // FAQ / knowledge base for the bot
+        const FAQ = [
+          {q: 'How do I submit a report?', a: 'Open Report → choose a category → add description & photo → submit. The system auto‑routes to the responsible department.'},
+          {q: 'What is Aadhaar used for?', a: 'Aadhaar (12 digits) is used in this demo to identify public users locally. No external API is called.'},
+          {q: 'How are technicians assigned?', a: 'Technicians are assigned automatically when available; admins may assign manually. Statuses: Assigned → In Progress → Pending Review → Resolved.'},
+          {q: 'Is this an official site?', a: 'No — this is a demo prototype. Data is stored locally in your browser unless connected to an API.'},
+          {q: 'How do I check my report status?', a: 'Click My Reports in the top navigation (or ask me to open it). Reports you submitted in this browser will appear there.'}
+        ];
+
         useEffect(()=>{ if(open){ setTimeout(()=>{ scrollRef.current?.scrollTo({top: scrollRef.current.scrollHeight, behavior:'smooth'}) },100) } },[messages,open]);
 
         function pushUser(text){
@@ -976,14 +995,17 @@
           const t = text.trim();
           setMessages(prev=>[...prev,{from:'user',text:t}]);
           setInput('');
-          // simple bot reply after delay
+          // simple bot reply after delay with more helpful mappings
           setTimeout(()=>{
             const low = t.toLowerCase();
-            let reply = "Sorry, I didn't understand. Ask about reporting, status, Aadhaar, or technicians.";
+            let reply = "Sorry, I didn't understand. Try: 'How do I report?', 'Check my status', or use one of the quick buttons.";
             if(low.includes('how') && low.includes('report')){
               reply = 'To report: click "Report" → choose category → add description & photo → submit. The system will auto‑assign a department.';
+              // suggest opening report form
+              dispatchSystemEvent({type:'open-report'});
             } else if(low.includes('status') || low.includes('check')){
               reply = 'To check status: open "My Reports" (top nav) — you will see all reports you submitted in this browser.';
+              dispatchSystemEvent({type:'open-my-reports'});
             } else if(low.includes('aadhaar')||low.includes('aadhar')){
               reply = 'Public login uses a 12‑digit Aadhaar number. Enter it on Public Login to save your profile locally for the demo.';
             } else if(low.includes('technician')||low.includes('assign')){
@@ -991,7 +1013,7 @@
             } else if(low.includes('contact')||low.includes('phone')){
               reply = 'You can optionally add your phone when saving your profile — used only for demo identification.';
             } else if(low.includes('help')||low.includes('guide')){
-              reply = 'I can guide you through the public flows: logging in, filing a report, and viewing your reports. Ask any one of those.';
+              reply = 'I can guide you through the public flows: logging in, filing a report, and viewing your reports. Try the Quick actions below.';
             }
             setMessages(prev=>[...prev,{from:'bot',text:reply}]);
           }, 500);
@@ -1015,14 +1037,29 @@
                     <button onClick={()=>{ setOpen(false) }} className="px-2 py-1 rounded bg-white/10">Close</button>
                   </div>
                 </div>
-                <div ref={scrollRef} className="h-56 overflow-y-auto p-3 space-y-2 bg-slate-50">
-                  {messages.map((m,i)=>(
-                    <div key={i} className={`flex ${m.from==='bot'?'justify-start':'justify-end'}`}>
-                      <div className={`max-w-[80%] px-3 py-2 rounded-xl ${m.from==='bot'?'bg-white border':'bg-blue-600 text-white'}`}>
-                        {m.text}
+                <div className="p-3 bg-slate-50">
+                  <div className="mb-2 text-xs text-slate-500">Quick help</div>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {FAQ.slice(0,3).map((f,idx)=>(
+                      <button key={idx} onClick={()=>{ setMessages(prev=>[...prev,{from:'user',text:f.q}]); setTimeout(()=>setMessages(prev=>[...prev,{from:'bot',text:f.a}]),250); }} className="px-3 py-1.5 rounded-full bg-white border text-slate-700 text-xs">{f.q}</button>
+                    ))}
+                  </div>
+                  <div ref={scrollRef} className="h-56 overflow-y-auto p-1 space-y-2">
+                    {messages.map((m,i)=>(
+                      <div key={i} className={`flex ${m.from==='bot'?'justify-start':'justify-end'}`}>
+                        <div className={`max-w-[80%] px-3 py-2 rounded-xl ${m.from==='bot'?'bg-white border':'bg-blue-600 text-white'}`}>
+                          {m.text}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button onClick={()=>{ pushUser('How do I report?') }} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs">How to report</button>
+                    <button onClick={()=>{ pushUser('Check my status') }} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs">Check status</button>
+                    <button onClick={()=>{ pushUser('Aadhaar info') }} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs">Aadhaar</button>
+                    <button onClick={()=>{ dispatchSystemEvent({type:'open-report'}) }} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs">Open Report form</button>
+                    <button onClick={()=>{ dispatchSystemEvent({type:'open-my-reports'}) }} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs">Open My Reports</button>
+                  </div>
                 </div>
                 <div className="p-2 bg-white border-t flex gap-2">
                   <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ pushUser(input) } }} placeholder="Ask me (e.g., how to report)" className="flex-1 px-3 py-2 rounded-xl border" />
