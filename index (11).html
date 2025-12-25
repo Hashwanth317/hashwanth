@@ -8,8 +8,6 @@
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
   <style>.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}</style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -186,75 +184,7 @@
         }catch(e){rej(e)}
       })
     }
-    
-    // --- AI Issue Recognition (Teachable Machine, runs in browser) ---
-    const TM_ISSUE_URL = "https://teachablemachine.withgoogle.com/models/KzgVgXErL/";
-    let _tmIssueModelPromise = null;
-
-    async function loadIssueModel(){
-      if(_tmIssueModelPromise) return _tmIssueModelPromise;
-      _tmIssueModelPromise = (async ()=>{
-        if(!window.tmImage){
-          throw new Error("tmImage not found. Check teachablemachine-image script tag.");
-        }
-        const modelURL = TM_ISSUE_URL + "model.json";
-        const metadataURL = TM_ISSUE_URL + "metadata.json";
-        return await window.tmImage.load(modelURL, metadataURL);
-      })();
-      return _tmIssueModelPromise;
-    }
-
-    function _normKey(s){
-      return (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
-    }
-
-    function mapLabelToCategory(label){
-      const k = _normKey(label);
-
-      // If your Teachable Machine class names match app categories, this works automatically:
-      try{
-        const direct = (typeof CATEGORIES !== "undefined")
-          ? CATEGORIES.find(c => _normKey(c) === k)
-          : null;
-        if(direct) return direct;
-      }catch(e){}
-
-      // Fallback keyword mapping (handles labels like "Street Light", "Trash", "Water leak")
-      if(k.includes("pothole")) return "Pothole";
-      if(k.includes("street") && k.includes("light")) return "Streetlight";
-      if(k.includes("garbage") || k.includes("trash") || k.includes("waste")) return "Garbage";
-      if(k.includes("water") || k.includes("leak")) return "Water";
-      if(k.includes("safety") || k.includes("hazard") || k.includes("accident")) return "Safety";
-      if(k.includes("other")) return "Other";
-
-      return null;
-    }
-
-    async function fileToHtmlImage(file){
-      const dataUrl = await fileToDataUrl(file);
-      const img = new Image();
-      img.src = dataUrl;
-      await new Promise((res, rej)=>{
-        img.onload = res;
-        img.onerror = rej;
-      });
-      return img;
-    }
-
-    async function recognizeIssueFromFile(file){
-      const model = await loadIssueModel();
-      const img = await fileToHtmlImage(file);
-      const preds = await model.predict(img); // [{className, probability}, ...]
-      preds.sort((a,b)=>b.probability - a.probability);
-      const top = preds[0] || {className:"Unknown", probability:0};
-      return {
-        label: top.className,
-        confidence: top.probability,
-        category: mapLabelToCategory(top.className),
-        all: preds
-      };
-    }
-function App(){
+    function App(){
       const [tab,setTab]=useState("report");
       const [mobileNavOpen, setMobileNavOpen] = useState(false);
       const [reports,setReports]=useReports();
@@ -782,34 +712,9 @@ function App(){
       );
     }
     function TabButton({label,active,onClick}){return(<button onClick={onClick} className={`px-3 py-1.5 rounded-full text-sm border ${active?"bg-slate-900 text-white border-slate-900":"bg-white hover:bg-slate-100 border-slate-300"}`}>{label}</button>)}
-  function ReportForm({onSubmit, publicProfile}){const [category,setCategory]=useState(CATEGORIES[0]);const [description,setDescription]=useState("");const [image,setImage]=useState(null);const [coords,setCoords]=useState({lat:"",lng:""});const [address,setAddress]=useState("");const [submitting,setSubmitting]=useState(false);const [aiLoading,setAiLoading]=useState(false);const [aiGuess,setAiGuess]=useState(null);const [aiError,setAiError]=useState("");const AI_MIN_CONFIDENCE=0.75;const fileInput=useRef();
+  function ReportForm({onSubmit, publicProfile}){const [category,setCategory]=useState(CATEGORIES[0]);const [description,setDescription]=useState("");const [image,setImage]=useState(null);const [coords,setCoords]=useState({lat:"",lng:""});const [address,setAddress]=useState("");const [submitting,setSubmitting]=useState(false);const fileInput=useRef();
       function useMyLocation(){if(!navigator.geolocation){alert("Geolocation not supported");return}navigator.geolocation.getCurrentPosition((pos)=>{const {latitude,longitude}=pos.coords;setCoords({lat:latitude.toFixed(6),lng:longitude.toFixed(6)})},()=>alert("Unable to fetch location"),{enableHighAccuracy:true,timeout:8000})}
-  
-  async function handlePhotoChange(e){
-    const file = e.target.files?.[0] || null;
-    setImage(file);
-    setAiGuess(null);
-    setAiError("");
-    if(!file) return;
-
-    setAiLoading(true);
-    try{
-      const res = await recognizeIssueFromFile(file);
-      setAiGuess(res);
-
-      // Auto-apply only when confidence is decent
-      if(res.category && res.confidence >= AI_MIN_CONFIDENCE){
-        setCategory(res.category);
-      }
-    }catch(err){
-      console.error(err);
-      setAiError("AI could not analyze this photo. Try another image.");
-    }finally{
-      setAiLoading(false);
-    }
-  }
-
-async function handleSubmit(e){
+  async function handleSubmit(e){
     e.preventDefault();
     setSubmitting(true);
     const photo=image?await fileToDataUrl(image):null;
@@ -862,7 +767,6 @@ async function handleSubmit(e){
       category,
       description,
       photo,
-      ai: aiGuess ? { label: aiGuess.label, confidence: aiGuess.confidence, category: aiGuess.category } : null,
       coords,
       address,
       status: assignedTech ? "Assigned" : "Submitted",
@@ -883,11 +787,7 @@ async function handleSubmit(e){
     setCoords({lat:"",lng:""});
     setAddress("");
   }
-      return(<div className="grid lg:grid-cols-3 gap-6"><div className="lg:col-span-2"><div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><h2 className="text-lg font-semibold mb-3">Report an Issue</h2><form onSubmit={handleSubmit} className="space-y-4"><div><label className="block text-sm text-slate-600 mb-1">Category</label><select value={category} onChange={(e)=>setCategory(e.target.value)} className="w-full border rounded-xl px-3 py-2">{CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select></div><div><label className="block text-sm text-slate-600 mb-1">Description</label><textarea value={description} onChange={(e)=>setDescription(e.target.value)} placeholder="Describe the issue…" className="w-full border rounded-xl px-3 py-2 min-h-[100px]"/></div><div className="flex items-center gap-3"><button type="button" onClick={()=>fileInput.current?.click()} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border"><Ico c="w-4 h-4"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l2-3h8l2 3h3a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></Ico> Add Photo</button><input ref={fileInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoChange}/>{image&&<span className="text-xs text-slate-600">Selected: {image.name}</span>}</div>{image&&(<img alt="preview" src={URL.createObjectURL(image)} className="rounded-xl border max-h-56 object-cover"/>)}
-      {aiLoading&&<div className="text-xs text-slate-500">Analyzing photo…</div>}
-      {aiGuess&&(<div className="text-xs text-slate-600">AI suggestion: <span className="font-medium">{aiGuess.category||aiGuess.label}</span> ({Math.round(aiGuess.confidence*100)}%){aiGuess.category&&aiGuess.category!==category&&<button type="button" onClick={()=>setCategory(aiGuess.category)} className="ml-2 underline">Apply</button>}{aiGuess.confidence<AI_MIN_CONFIDENCE&&<span className="text-slate-500"> — low confidence</span>}</div>)}
-      {aiError&&<div className="text-xs text-rose-600">{aiError}</div>}
-
+      return(<div className="grid lg:grid-cols-3 gap-6"><div className="lg:col-span-2"><div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><h2 className="text-lg font-semibold mb-3">Report an Issue</h2><form onSubmit={handleSubmit} className="space-y-4"><div><label className="block text-sm text-slate-600 mb-1">Category</label><select value={category} onChange={(e)=>setCategory(e.target.value)} className="w-full border rounded-xl px-3 py-2">{CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}</select></div><div><label className="block text-sm text-slate-600 mb-1">Description</label><textarea value={description} onChange={(e)=>setDescription(e.target.value)} placeholder="Describe the issue…" className="w-full border rounded-xl px-3 py-2 min-h-[100px]"/></div><div className="flex items-center gap-3"><button type="button" onClick={()=>fileInput.current?.click()} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border"><Ico c="w-4 h-4"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l2-3h8l2 3h3a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></Ico> Add Photo</button><input ref={fileInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e)=>setImage(e.target.files?.[0]||null)}/>{image&&<span className="text-xs text-slate-600">Selected: {image.name}</span>}</div>{image&&(<img alt="preview" src={URL.createObjectURL(image)} className="rounded-xl border max-h-56 object-cover"/>)}
       <div className="grid sm:grid-cols-3 gap-3"><div><label className="block text-sm text-slate-600 mb-1">Latitude</label><input value={coords.lat} onChange={(e)=>setCoords(c=>({...c,lat:e.target.value}))} className="w-full border rounded-xl px-3 py-2" placeholder="e.g., 23.3441"/></div><div><label className="block text-sm text-slate-600 mb-1">Longitude</label><input value={coords.lng} onChange={(e)=>setCoords(c=>({...c,lng:e.target.value}))} className="w-full border rounded-xl px-3 py-2" placeholder="e.g., 85.3096"/></div><div className="flex items-end"><button type="button" onClick={useMyLocation} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border"><MapPinIcon/> Use my location</button></div></div>
       <div><label className="block text-sm text-slate-600 mb-1">Address (optional)</label><input value={address} onChange={(e)=>setAddress(e.target.value)} className="w-full border rounded-xl px-3 py-2" placeholder="Landmark / Street / Area"/></div>
       <div className="pt-2"><button disabled={submitting} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white"><SendIcon/> Submit Report</button></div></form></div></div>
