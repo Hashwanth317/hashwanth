@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-public-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-public-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-noto-sans), ui-sans-serif, system-ui, sans-serif;
+
+  --color-primary: #137fec;
+  --color-background-light: #f6f7f8;
+  --color-background-dark: #101922;
+
+  --color-surface-light: #ffffff;
+  --color-surface-dark: #1A2633;
+  --color-border-light: #dbe0e6;
+  --color-border-dark: #2d3b4a;
+  --color-text-main-light: #111418;
+  --color-text-main-dark: #f0f2f4;
+  --color-text-sec-light: #617589;
+  --color-text-sec-dark: #9ba8b8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* Custom Utilities based on User's CSS */
+@layer utilities {
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+  
+  .glass-panel {
+    @apply bg-white/70 backdrop-blur-md border border-white/50 dark:bg-[#101922]/60 dark:border-white/10;
+  }
+  
+  .glass-card {
+    @apply bg-white/45 backdrop-blur-sm border border-white/60 shadow-[0_4px_30px_rgba(0,0,0,0.05)] dark:bg-slate-800/40 dark:border-white/5;
+  }
+  
+  .glass-button {
+    @apply bg-[#137fec]/85 backdrop-blur-[4px] border border-white/20 shadow-[0_4px_6px_rgba(19,127,236,0.2)];
+  }
+
+  .glass-input {
+    @apply bg-white/40 backdrop-blur-[4px] border border-white/40 focus:bg-white/80 focus:border-[#137fec]/50 focus:ring-2 focus:ring-[#137fec]/20 outline-none dark:bg-black/20 dark:border-white/5 dark:text-white dark:focus:bg-black/40;
+  }
+  
+  .bg-blob {
+    @apply absolute w-[600px] h-[600px] rounded-full blur-[80px] z-0 opacity-40 pointer-events-none;
+  }
+  
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .no-scrollbar::-webkit-scrollbar {
+      display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .no-scrollbar {
+      -ms-overflow-style: none;  /* IE and Edge */
+      scrollbar-width: none;  /* Firefox */
+  }
+}
