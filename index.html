@@ -10,7 +10,26 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
-  <style>.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}</style>
+  <style>
+    .line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+    /* Glow pulse for analyzing ring */
+    @keyframes glowPulse {0% {box-shadow:0 0 0 0 rgba(255,255,255,0.06);}50%{box-shadow:0 0 22px 8px rgba(99,102,241,0.16);}100%{box-shadow:0 0 0 0 rgba(255,255,255,0.06);}}
+    .glow-ring{border-radius:9999px; width:96px; height:96px; display:flex; align-items:center; justify-content:center; border:2px solid rgba(255,255,255,0.32); animation: glowPulse 1.6s infinite}
+
+    /* Scanline that sweeps across the image */
+    .scanline{position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; overflow:hidden}
+    .scanline:after{content:''; position:absolute; left:-40%; top:0; width:40%; height:100%; background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%); transform: skewX(-20deg); animation: scanMove 1.6s linear infinite}
+    @keyframes scanMove {0%{left:-40%;}100%{left:140%;}}
+
+    /* pop-in for result icons */
+    @keyframes popIn{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.06);opacity:1}100%{transform:scale(1);opacity:1}}
+    .result-pop{animation: popIn 320ms cubic-bezier(.2,.9,.2,1)}
+    /* Scanner overlay styles for government face login */
+    .scanner-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .scanner-overlay .ring-wrap{position:relative;display:flex;align-items:center;justify-content:center}
+    .scanner-status{position:absolute;bottom:0.8rem;left:50%;transform:translateX(-50%);padding:6px 12px;border-radius:9999px;background:rgba(0,0,0,0.45);color:#fff;font-weight:600;font-size:0.9rem}
+    .scanline{mix-blend-mode:screen;opacity:0.9}
+  </style> 
 </head>
 <body class="bg-slate-50 text-slate-900">
   <div id="root"></div>
@@ -258,6 +277,38 @@
         all: preds
       };
     }
+
+    // --- AI Face Login (Teachable Machine, runs in browser) ---
+    const TM_GOV_FACE_URL = "https://teachablemachine.withgoogle.com/models/mpufe0g7d/";
+    let _tmGovFaceModelPromise = null;
+
+    async function loadGovFaceModel(){
+      if(_tmGovFaceModelPromise) return _tmGovFaceModelPromise;
+      _tmGovFaceModelPromise = (async ()=>{
+        if(!window.tmImage){
+          throw new Error("tmImage not found. Check teachablemachine-image script tag.");
+        }
+        const modelURL = TM_GOV_FACE_URL + "model.json";
+        const metadataURL = TM_GOV_FACE_URL + "metadata.json";
+        return await window.tmImage.load(modelURL, metadataURL);
+      })();
+      return _tmGovFaceModelPromise;
+    }
+
+    function _isUnknownFaceLabel(label){
+      const k = (label||"").toLowerCase();
+      return k.includes("unknown") || k.includes("other") || k.includes("none") || k.includes("no face");
+    }
+
+    async function recognizeGovFaceFromVideo(videoEl){
+      const model = await loadGovFaceModel();
+      const preds = await model.predict(videoEl); // [{className, probability}, ...]
+      preds.sort((a,b)=>b.probability - a.probability);
+      const top = preds[0] || {className:"Unknown", probability:0};
+      return { label: top.className, confidence: top.probability, all: preds };
+    }
+
+
 function App(){
       const [tab,setTab]=useState("report");
       const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -302,6 +353,16 @@ function App(){
   const [tempPublic,setTempPublic]=useState({photo:null,name:'',phone:'',aadhaar:''});
   const [pendingGovLogin, setPendingGovLogin] = useState(false);
   const [tempGovId, setTempGovId] = useState('');
+
+  const govVideoRef = useRef(null);
+  const govStreamRef = useRef(null);
+  const [govCamOn,setGovCamOn]=useState(false);
+  const [govFaceLoading,setGovFaceLoading]=useState(false);
+  const [govFaceResult,setGovFaceResult]=useState(null);
+  const [govFaceError,setGovFaceError]=useState("");
+  const [govFaceVerified,setGovFaceVerified]=useState(false);
+  const GOV_FACE_MIN_CONF = 0.85;
+
       const [pendingPublicLogin,setPendingPublicLogin]=useState(false);
       const { technicians, assignTask, completeTask } = useTechnicians();
   // Defensive: ensure technicians tab is only visible/active for government users.
@@ -328,6 +389,125 @@ function App(){
         }
       }
       function removePublicProfile(){localStorage.removeItem('publicProfile'); setPublicProfile(null)}
+
+      // --- Government Face Login helpers (demo) ---
+      async function startGovCamera(){
+        setGovFaceError("");
+        setGovFaceResult(null);
+        try{
+          if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+            setGovFaceError("Camera is not supported in this browser.");
+            return;
+          }
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user" },
+            audio: false
+          });
+          govStreamRef.current = stream;
+          const v = govVideoRef.current;
+          if(v){
+            v.srcObject = stream;
+            await v.play();
+            setGovCamOn(true);
+          }
+        }catch(e){
+          console.error(e);
+          setGovFaceError("Unable to access camera. Please allow camera permission.");
+        }
+      }
+
+      function stopGovCamera(){
+        try{
+          const s = govStreamRef.current;
+          if(s){
+            s.getTracks().forEach(t=>t.stop());
+          }
+        }catch(e){}
+        govStreamRef.current = null;
+        setGovCamOn(false);
+      }
+
+      // Stop camera if user leaves the login screen or closes the tab
+      useEffect(()=>{
+        return ()=>{
+          try{
+            const s = govStreamRef.current;
+            if(s) s.getTracks().forEach(t=>t.stop());
+          }catch(e){}
+        };
+      },[]);
+
+      async function scanGovFaceAndLogin(){
+        setGovFaceError("");
+        setGovFaceResult(null);
+        setGovFaceLoading(true);
+        try{
+          const v = govVideoRef.current;
+          if(!v || !govCamOn){
+            setGovFaceError("Start camera first.");
+            return;
+          }
+
+          const res = await recognizeGovFaceFromVideo(v);
+          setGovFaceResult(res);
+
+          // Special rule: if both class 1 and class 2 probabilities are >= 60% accept login
+          let class1Prob = 0, class2Prob = 0;
+          (res.all || []).forEach(p=>{
+            const k = (p.className||"").toLowerCase();
+            if(k === '1' || k.includes('class 1') || k.includes('class_1') || k.includes('class-1')) class1Prob = Math.max(class1Prob, p.probability);
+            if(k === '2' || k.includes('class 2') || k.includes('class_2') || k.includes('class-2')) class2Prob = Math.max(class2Prob, p.probability);
+          });
+          const specialOk = (class1Prob >= 0.6 && class2Prob >= 0.6);
+          if(specialOk){
+            // annotate result so UI shows something sensible
+            res.label = 'class1+class2';
+            res.confidence = Math.max(class1Prob, class2Prob);
+          }
+
+          const ok = specialOk || ((res.confidence >= GOV_FACE_MIN_CONF) && !_isUnknownFaceLabel(res.label));
+          if(!ok){
+            setGovFaceError(`Face not recognized (top: ${res.label} ${Math.round(res.confidence*100)}%). Try again.`);
+            return;
+          }
+
+          // Merge with any existing govProfile (keeps idImage if uploaded)
+          let existing = {};
+          try{ existing = JSON.parse(localStorage.getItem('govProfile')||'{}') || {}; }catch(e){ existing = {}; }
+
+          const profile = {
+            ...existing,
+            govId: res.label,
+            faceClass: res.label,
+            faceConfidence: res.confidence,
+            lastFaceLoginAt: new Date().toISOString(),
+          };
+
+          // Save profile immediately so it's available during the brief verified indicator
+          localStorage.setItem('govProfile', JSON.stringify(profile));
+          setGovProfile(profile);
+
+          // Show green tick + Verified briefly before redirecting into the app
+          setGovFaceVerified(true);
+          setGovFaceLoading(false);
+          setGovFaceError("");
+
+          setTimeout(()=>{
+            setGovFaceVerified(false);
+            setUserType('government');
+            setTab('report');
+            setPendingGovLogin(false);
+            setTempGovId('');
+            stopGovCamera();
+          }, 1100);
+        }catch(e){
+          console.error(e);
+          setGovFaceError("Unable to run face verification. Check model link and camera.");
+        }finally{
+          setGovFaceLoading(false);
+        }
+      }
+
       // Only show login if not selected
       const filtered=useMemo(()=>{
         let base = reports;
@@ -428,20 +608,80 @@ function App(){
                     </div>
                   </div>
                 </div>
+              
               ) : pendingGovLogin ? (
                 <div className="bg-white/5 rounded-xl p-4 mt-4 text-left text-sm">
-                  <h3 className="text-lg font-semibold mb-2">Government — Enter Unique ID</h3>
-                  <p className="mb-3">Enter your government ID to continue to the government area. This ID will be stored locally for the demo.</p>
+                  <h3 className="text-lg font-semibold mb-2">Government — Face Login</h3>
+                  <p className="mb-3">Allow camera access and scan your face to continue. This uses your Teachable Machine model in the browser.</p>
+
                   <div className="space-y-3">
-                    <input value={tempGovId} onChange={(e)=>setTempGovId(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400" placeholder="Government unique ID" />
-                    <div className="flex items-center gap-2 justify-center">
-                      <button onClick={()=>{const id = (tempGovId||'').trim(); if(!id){alert('Please enter your government ID'); return} try{const profile={govId:id,at:new Date().toISOString()}; localStorage.setItem('govProfile',JSON.stringify(profile)); setGovProfile(profile); setUserType('government'); setTab('report'); setPendingGovLogin(false); setTempGovId('');}catch(e){console.error(e);alert('Unable to save ID locally')}}} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Save & Continue</button>
-                      <button onClick={()=>{setPendingGovLogin(false); setTempGovId('');}} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Back</button>
+                    <div className="w-full rounded-xl border overflow-hidden bg-black/10 relative">
+                      <video ref={govVideoRef} playsInline muted className="w-full h-56 object-cover" />
+
+                      <div className={`scanner-overlay ${govFaceLoading ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}>
+                        <div className="ring-wrap" aria-hidden>
+                          <div className="glow-ring" />
+                        </div>
+                        <div className="scanline" aria-hidden />
+                        <div className="scanner-status">{govFaceLoading ? "Scanning — hold still" : "Ready"}</div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 justify-center flex-wrap">
+                      {!govCamOn ? (
+                        <button onClick={startGovCamera} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Start Camera</button>
+                      ) : (
+                        <button onClick={stopGovCamera} className="px-4 py-2 rounded-xl bg-slate-700 text-white">Stop Camera</button>
+                      )}
+
+                      <button
+                        disabled={!govCamOn || govFaceLoading}
+                        onClick={scanGovFaceAndLogin}
+                        className="px-4 py-2 rounded-xl bg-emerald-700 text-white disabled:opacity-50"
+                      >
+                        {govFaceLoading ? "Scanning..." : "Scan & Login"}
+                      </button>
+
+                      <button
+                        onClick={()=>{
+                          stopGovCamera();
+                          setPendingGovLogin(false);
+                          setTempGovId('');
+                          setGovFaceError('');
+                          setGovFaceResult(null);
+                        }}
+                        className="px-4 py-2 rounded-xl bg-blue-700 text-white"
+                      >
+                        Back
+                      </button>
+                    </div>
+
+                    {govFaceResult && (
+                      <div className="text-xs text-slate-700 bg-white/60 rounded-lg p-2 border">
+                        Top match: <span className="font-medium">{govFaceResult.label}</span> ({Math.round(govFaceResult.confidence*100)}%)
+                      </div>
+                    )}
+
+                    {govFaceVerified && (
+                      <div className="flex items-center justify-center gap-2 mt-2 text-emerald-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                        <span className="font-semibold">Verified</span>
+                      </div>
+                    )}
+
+                    {govFaceError && (
+                      <div className="text-xs text-rose-700 bg-rose-50 rounded-lg p-2 border border-rose-200">
+                        {govFaceError}
+                      </div>
+                    )}
+
+                    <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border">
+                      Note: This is a demo face classifier, not secure authentication. For real systems use proper server-side login and liveness checks.
                     </div>
                   </div>
                 </div>
               ) : null}
-            </div>
+</div>
           </div>
         );
       }
@@ -942,29 +1182,30 @@ function App(){
 
                       {/* Analyzing overlay */}
                       {analysisState==="analyzing" && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/30 rounded-xl">
-                          <div className="w-24 h-24 rounded-full border-2 border-white/50 flex items-center justify-center">
-                            <svg className="w-12 h-12 animate-spin text-white" viewBox="0 0 50 50">
-                              <circle cx="25" cy="25" r="20" stroke="currentColor" strokeWidth="4" strokeDasharray="31.4 31.4" fill="none"></circle>
-                            </svg>
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl overflow-hidden">
+                          <div className="scanline"/>
+                          <div className="relative z-10 flex flex-col items-center">
+                            <div className="glow-ring">
+                              <div className="w-12 h-12 rounded-full bg-white/20"></div>
+                            </div>
+                            <div className="mt-3 text-sm text-white">Analyzing…</div>
+                            <div className="mt-2 w-40 bg-white/10 rounded-full overflow-hidden">
+                              <div className="h-2 bg-white" style={{width: analysisProgress + '%', transition: 'width 300ms ease'}}></div>
+                            </div>
+                            <div className="mt-1 text-xs text-white/90">{analysisProgress}%</div>
                           </div>
-                          <div className="mt-3 text-sm text-white">Analyzing…</div>
-                          <div className="mt-2 w-40 bg-white/20 rounded-full overflow-hidden">
-                            <div className="h-2 bg-white" style={{width: analysisProgress + '%', transition: 'width 300ms ease'}}></div>
-                          </div>
-                          <div className="mt-1 text-xs text-white/90">{analysisProgress}%</div>
                         </div>
-                      )}
+                      )} 
 
                       {/* Result overlay: tick or cross */}
                       {analysisState==="done" && aiGuess && (
                         <div className="absolute inset-0 flex items-center justify-center rounded-xl">
                           { (aiGuess.confidence >= AI_MIN_CONFIDENCE) ? (
-                            <div className="bg-emerald-600 text-white p-4 rounded-full shadow-lg flex items-center justify-center">
+                            <div className="bg-emerald-600 text-white p-4 rounded-full shadow-lg flex items-center justify-center result-pop">
                               <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>
                             </div>
                           ) : (
-                            <div className="bg-rose-600 text-white p-4 rounded-full shadow-lg flex items-center justify-center">
+                            <div className="bg-rose-600 text-white p-4 rounded-full shadow-lg flex items-center justify-center result-pop">
                               <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 L6 18 M6 6 L18 18"/></svg>
                             </div>
                           )}
