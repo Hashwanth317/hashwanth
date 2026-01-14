@@ -2,1497 +2,1588 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FixCity • Civic Issue Reporter</title>
-
-  <!-- Tailwind -->
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crowdsourced Civic Issue Reporter – Single‑File Prototype (with Reviews)</title>
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- React + Babel (single-file prototype) -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- Teachable Machine (Issue recognition + Face login) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
-
   <style>
-    /* Tiny polish for demo */
-    .card { border-radius: 1rem; }
-  </style>
+    .line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+    /* Glow pulse for analyzing ring */
+    @keyframes glowPulse {0% {box-shadow:0 0 0 0 rgba(255,255,255,0.06);}50%{box-shadow:0 0 22px 8px rgba(99,102,241,0.16);}100%{box-shadow:0 0 0 0 rgba(255,255,255,0.06);}}
+    .glow-ring{border-radius:9999px; width:96px; height:96px; display:flex; align-items:center; justify-content:center; border:2px solid rgba(255,255,255,0.32); animation: glowPulse 1.6s infinite}
+
+    /* Scanline that sweeps across the image */
+    .scanline{position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; overflow:hidden}
+    .scanline:after{content:''; position:absolute; left:-40%; top:0; width:40%; height:100%; background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%); transform: skewX(-20deg); animation: scanMove 1.6s linear infinite}
+    @keyframes scanMove {0%{left:-40%;}100%{left:140%;}}
+
+    /* pop-in for result icons */
+    @keyframes popIn{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.06);opacity:1}100%{transform:scale(1);opacity:1}}
+    .result-pop{animation: popIn 320ms cubic-bezier(.2,.9,.2,1)}
+    /* Scanner overlay styles for government face login */
+    .scanner-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .scanner-overlay .ring-wrap{position:relative;display:flex;align-items:center;justify-content:center}
+    .scanner-status{position:absolute;bottom:0.8rem;left:50%;transform:translateX(-50%);padding:6px 12px;border-radius:9999px;background:rgba(0,0,0,0.45);color:#fff;font-weight:600;font-size:0.9rem}
+    .scanline{mix-blend-mode:screen;opacity:0.9}
+  </style> 
 </head>
 <body class="bg-slate-50 text-slate-900">
   <div id="root"></div>
-
   <script type="text/babel">
-    const { useEffect, useMemo, useRef, useState } = React;
+    const {useEffect, useMemo, useRef, useState} = React;
+    const DEPARTMENTS={Pothole:"Public Works",Streetlight:"Electrical",Garbage:"Sanitation",Water:"Water Board",Safety:"Traffic Police",Other:"General Admin"};
+    const CATEGORIES=Object.keys(DEPARTMENTS);
+    const PRIORITIES=["low","medium","high"];
+    const STATUS_FLOW=["Submitted","Acknowledged","Assigned","In Progress","Resolved"];
+    const storageKey="civic-issue-reports-v1";
+    const techniciansKey="civic-technicians-v1";
+    const fakeId=()=>Math.random().toString(36).slice(2,10);
+    
+    
 
-    // ---------------------------
-    // Config
-    // ---------------------------
+    
+    // Initial technicians data per department
+    const INITIAL_TECHNICIANS = {
+      "Public Works": [
+        { id: "pw1", name: "John Smith", available: true, currentTask: null },
+        { id: "pw2", name: "Mike Johnson", available: true, currentTask: null },
+        { id: "pw3", name: "Sarah Wilson", available: true, currentTask: null },
+        { id: "pw4", name: "Robert Brown", available: true, currentTask: null },
+        { id: "pw5", name: "David Miller", available: true, currentTask: null }
+      ],
+      "Electrical": [
+        { id: "el1", name: "James Anderson", available: true, currentTask: null },
+        { id: "el2", name: "Patricia Lee", available: true, currentTask: null },
+        { id: "el3", name: "Thomas Wright", available: true, currentTask: null },
+        { id: "el4", name: "Lisa Martinez", available: true, currentTask: null },
+        { id: "el5", name: "Kevin Taylor", available: true, currentTask: null }
+      ],
+      "Sanitation": [
+        { id: "sn1", name: "Daniel White", available: true, currentTask: null },
+        { id: "sn2", name: "Mary Harris", available: true, currentTask: null },
+        { id: "sn3", name: "Joseph Clark", available: true, currentTask: null },
+        { id: "sn4", name: "Jennifer Lewis", available: true, currentTask: null },
+        { id: "sn5", name: "Richard Hall", available: true, currentTask: null }
+      ],
+      "Water Board": [
+        { id: "wb1", name: "Charles Turner", available: true, currentTask: null },
+        { id: "wb2", name: "Susan Walker", available: true, currentTask: null },
+        { id: "wb3", name: "George King", available: true, currentTask: null },
+        { id: "wb4", name: "Margaret Young", available: true, currentTask: null },
+        { id: "wb5", name: "Edward Baker", available: true, currentTask: null }
+      ],
+      "Traffic Police": [
+        { id: "tp1", name: "William Green", available: true, currentTask: null },
+        { id: "tp2", name: "Elizabeth Adams", available: true, currentTask: null },
+        { id: "tp3", name: "Michael Scott", available: true, currentTask: null },
+        { id: "tp4", name: "Karen Nelson", available: true, currentTask: null },
+        { id: "tp5", name: "Steven Carter", available: true, currentTask: null }
+      ],
+      "General Admin": [
+        { id: "ga1", name: "Donald Hill", available: true, currentTask: null },
+        { id: "ga2", name: "Nancy Moore", available: true, currentTask: null },
+        { id: "ga3", name: "Christopher Ross", available: true, currentTask: null },
+        { id: "ga4", name: "Betty Cooper", available: true, currentTask: null },
+        { id: "ga5", name: "Mark Peterson", available: true, currentTask: null }
+      ]
+    };
+    const loadReports=()=>{try{return JSON.parse(localStorage.getItem(storageKey)||"[]");}catch{return[]}};
+    const saveReports=(it)=>localStorage.setItem(storageKey,JSON.stringify(it));
+    const assignDepartment=(c)=>DEPARTMENTS[c]||DEPARTMENTS.Other;
+    function inferPriority(c,d){const t=`${c} ${d}`.toLowerCase();if(t.includes("accident")||t.includes("injury")||t.includes("live wire")||t.includes("overflowing"))return"high";if(t.includes("blocked")||t.includes("leak")||t.includes("night"))return"medium";return"low"}
+    const nextStatus=(s)=>STATUS_FLOW[Math.min(STATUS_FLOW.indexOf(s)+1,STATUS_FLOW.length-1)];
+    const fmtDate=(iso)=>{try{return new Date(iso).toLocaleString()}catch{return iso}};
+    const badgeColor=(p)=>p==="high"?"border-red-300 bg-red-50 text-red-700":(p==="medium"?"border-amber-300 bg-amber-50 text-amber-700":"border-emerald-300 bg-emerald-50 text-emerald-700");
+    const listeners=new Set(); const dispatchSystemEvent=(e)=>listeners.forEach(f=>f(e)); const useSystemEvents=(h)=>{useEffect(()=>{listeners.add(h);return()=>listeners.delete(h)},[h])};
+  // Notifications stored locally for demo
+  const notificationsKey = 'civic-notifications-v1';
+  const loadNotifications = ()=>{try{return JSON.parse(localStorage.getItem(notificationsKey)||'[]')}catch{return[]}};
+  const saveNotifications = (arr)=>localStorage.setItem(notificationsKey,JSON.stringify(arr));
+  const pushNotification = (n)=>{const cur = loadNotifications(); cur.unshift(n); saveNotifications(cur)};
+    const Ico=(p)=>React.createElement("svg",{className:p.c,viewBox:"0 0 24 24",fill:p.f||"none",stroke:"currentColor",strokeWidth:p.w||"2",strokeLinecap:"round",strokeLinejoin:"round"},p.children);
+    const CameraIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l2-3h8l2 3h3a2 2 0 0 1 2 2z"}),React.createElement("circle",{cx:"12",cy:"13",r:"4"})]});
+    const MapPinIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1 1 18 0z"}),React.createElement("circle",{cx:"12",cy:"10",r:"3"})]});
+    const SendIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"m22 2-7 20-4-9-9-4Z"}),React.createElement("path",{d:"M22 2 11 13"})]});
+    const CheckIcon=()=>Ico({c:"w-5 h-5",children:[React.createElement("path",{d:"M20 6 9 17l-5-5"})]});
+    const ClockIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("circle",{cx:"12",cy:"12",r:"10"}),React.createElement("path",{d:"m12 6 0 6 4 2"})]});
+    const WrenchIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"M14.7 6.3a4 4 0 1 0-5.6 5.6l8.6 8.6a2 2 0 0 0 2.8-2.8l-8.6-8.6z"})]});
+    const TrashIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("polyline",{points:"3 6 5 6 21 6"}),React.createElement("path",{d:"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"}),React.createElement("path",{d:"M10 11v6M14 11v6"}),React.createElement("path",{d:"M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"})]});
+    const AlertIcon=()=>Ico({c:"w-5 h-5",children:[React.createElement("path",{d:"M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"}),React.createElement("line",{x1:"12",y1:"9",x2:"12",y2:"13"}),React.createElement("line",{x1:"12",y1:"17",x2:"12.01",y2:"17"})]});
+    const BellIcon=()=>Ico({c:"w-4 h-4",children:[React.createElement("path",{d:"M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"}),React.createElement("path",{d:"M10.3 21a1.7 1.7 0 0 0 3.4 0"})]});
+    const StarIcon=({filled=false,className=''})=>Ico({c:`w-5 h-5 ${className}`,f:filled?"currentColor":"none",w:"1.5",children:[React.createElement("path",{d:"M12 17.3 6.2 20l1.1-6.5L2 8.8l6.6-1 3-6 3 6 6.6 1-4.8 4.7 1.1 6.5z"})]});
+    function useReports(){const [reports,setReports]=useState(loadReports());useEffect(()=>{saveReports(reports)},[reports]);return[reports,setReports]}
+    
+    // Load technicians data from localStorage or use initial data
+    const loadTechnicians = () => {
+      try {
+        const saved = localStorage.getItem(techniciansKey);
+        return saved ? JSON.parse(saved) : INITIAL_TECHNICIANS;
+      } catch {
+        return INITIAL_TECHNICIANS;
+      }
+    };
+    
+    // Save technicians data to localStorage
+    const saveTechnicians = (techs) => {
+      localStorage.setItem(techniciansKey, JSON.stringify(techs));
+    };
+    
+    // Custom hook to manage technicians state
+    function useTechnicians() {
+      const [technicians, setTechnicians] = useState(loadTechnicians());
+      
+      useEffect(() => {
+        saveTechnicians(technicians);
+      }, [technicians]);
+      
+      // Find an available technician in a department
+      const findAvailableTechnician = (department) => {
+        const deptTechs = technicians[department] || [];
+        return deptTechs.find(tech => tech.available);
+      };
+      
+      // Assign a task to a technician
+      const assignTask = (reportId, department) => {
+        const tech = findAvailableTechnician(department);
+        if (!tech) return null;
+        
+        setTechnicians(prev => ({
+          ...prev,
+          [department]: prev[department].map(t => 
+            t.id === tech.id 
+              ? { ...t, available: false, currentTask: reportId }
+              : t
+          )
+        }));
+        
+        return tech;
+      };
+      
+      // Mark a technician's task as complete
+      const completeTask = (techId, department) => {
+        setTechnicians(prev => ({
+          ...prev,
+          [department]: prev[department].map(t =>
+            t.id === techId
+              ? { ...t, available: true, currentTask: null }
+              : t
+          )
+        }));
+      };
+      
+      return {
+        technicians,
+        findAvailableTechnician,
+        assignTask,
+        completeTask
+      };
+    }
+    
+    async function fileToDataUrl(file){return new Promise((res)=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file)})}
+    // Resize/compress a data URL (image) to reduce size before storing in localStorage
+    async function resizeDataUrl(dataUrl, maxWidth=1024, quality=0.75){
+      return new Promise((res,rej)=>{
+        try{
+          const img = new Image();
+          img.onload = ()=>{
+            const ratio = Math.min(1, maxWidth / img.width);
+            const w = Math.round(img.width * ratio);
+            const h = Math.round(img.height * ratio);
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img,0,0,w,h);
+            const out = canvas.toDataURL('image/jpeg', quality);
+            res(out);
+          };
+          img.onerror = (e)=>rej(e);
+          img.src = dataUrl;
+        }catch(e){rej(e)}
+      })
+    }
+    
+    // --- AI Issue Recognition (Teachable Machine, runs in browser) ---
     const TM_ISSUE_URL = "https://teachablemachine.withgoogle.com/models/KzgVgXErL/";
-    const TM_GOV_FACE_URL = "https://teachablemachine.withgoogle.com/models/mpufe0g7d/";
+    let _tmIssueModelPromise = null;
 
-    const STORAGE = {
-      reports: "civic-reports-v2",
-      technicians: "civic-techs-v2",
-      notifications: "civic-notifs-v2",
-      publicProfile: "civic-public-profile-v2",
-      govProfile: "civic-gov-profile-v2",
-      techProfile: "civic-tech-profile-v2",
-      settings: "civic-settings-v2"
-    };
-
-    const DEFAULT_SETTINGS = {
-      smsEndpoint: "", // e.g. https://your-backend/notify-technician OR /notify-technician
-      issueAutoFillThreshold: 0.75,
-      faceLoginThreshold: 0.85,
-      duplicateRadiusMeters: 100,
-      duplicateTextSimilarity: 0.80
-    };
-
-    // Categories + department mapping
-    const CATEGORY_TO_DEPT = {
-      "Pothole": "Roads",
-      "Streetlight": "Electrical",
-      "Garbage": "Sanitation",
-      "Water": "Water Supply",
-      "Safety": "Public Safety",
-      "Other": "General"
-    };
-
-    const CATEGORIES = Object.keys(CATEGORY_TO_DEPT);
-
-    // ---------------------------
-    // Storage helpers
-    // ---------------------------
-    function safeJsonParse(s, fallback){
-      try { return JSON.parse(s); } catch { return fallback; }
-    }
-
-    function loadLS(key, fallback){
-      return safeJsonParse(localStorage.getItem(key), fallback);
-    }
-    function saveLS(key, value){
-      localStorage.setItem(key, JSON.stringify(value));
-    }
-
-    // ---------------------------
-    // Notifications (in-app)
-    // ---------------------------
-    function pushNotification(n){
-      const cur = loadLS(STORAGE.notifications, []);
-      const item = { ...n, id: n.id ?? (Date.now() + Math.floor(Math.random()*1000)), read: !!n.read };
-      cur.unshift(item);
-      saveLS(STORAGE.notifications, cur);
-      window.dispatchEvent(new CustomEvent("fixcity-notif", { detail: item }));
-      return item;
-    }
-
-    // ---------------------------
-    // SMS (API-ready + demo fallback)
-    // ---------------------------
-    async function sendTechnicianSMS(settings, tech, report){
-      if(!tech?.phone) return;
-      const msg =
-        `FixCity: New task assigned (${report.category}). Ticket ${report.id}. Priority ${report.priority}.`;
-
-      // Demo mode if endpoint not set
-      if(!settings?.smsEndpoint){
-        console.log("[DEMO SMS] to:", tech.phone, "message:", msg, "report:", report);
-        return;
-      }
-
-      try{
-        await fetch(settings.smsEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            toE164: tech.phone,
-            message: msg,
-            reportId: report.id,
-            technicianId: tech.id
-          })
-        });
-      }catch(e){
-        console.error("SMS send failed, demo fallback:", e);
-        console.log("[DEMO SMS FALLBACK] to:", tech.phone, "message:", msg);
-      }
-    }
-
-    // ---------------------------
-    // Utility helpers
-    // ---------------------------
-    function fmt(dtIso){
-      try{
-        const d = new Date(dtIso);
-        return d.toLocaleString();
-      }catch{
-        return dtIso || "";
-      }
-    }
-
-    function uid(prefix="R"){
-      return `${prefix}-${Math.random().toString(36).slice(2,6).toUpperCase()}-${Date.now().toString().slice(-6)}`;
-    }
-
-    async function fileToDataUrl(file){
-      return new Promise((resolve,reject)=>{
-        const r = new FileReader();
-        r.onload = ()=>resolve(r.result);
-        r.onerror = reject;
-        r.readAsDataURL(file);
-      });
-    }
-
-    function haversineMeters(lat1, lon1, lat2, lon2){
-      if([lat1,lon1,lat2,lon2].some(v => typeof v !== "number" || Number.isNaN(v))) return Infinity;
-      const R = 6371000;
-      const toRad = (x)=>x*Math.PI/180;
-      const dLat = toRad(lat2-lat1);
-      const dLon = toRad(lon2-lon1);
-      const a =
-        Math.sin(dLat/2)**2 +
-        Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      return R*c;
-    }
-
-    function tokenize(s){
-      return (s || "")
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, " ")
-        .split(/\s+/)
-        .filter(Boolean);
-    }
-
-    // Jaccard similarity over word sets (simple + effective for demo)
-    function textSimilarity(a,b){
-      const A = new Set(tokenize(a));
-      const B = new Set(tokenize(b));
-      if(A.size === 0 && B.size === 0) return 1;
-      if(A.size === 0 || B.size === 0) return 0;
-      let inter = 0;
-      for(const w of A){ if(B.has(w)) inter++; }
-      const union = A.size + B.size - inter;
-      return union === 0 ? 0 : inter/union;
-    }
-
-    // ---------------------------
-    // Teachable Machine helpers
-    // ---------------------------
-    let _issueModelPromise = null;
     async function loadIssueModel(){
-      if(_issueModelPromise) return _issueModelPromise;
-      _issueModelPromise = window.tmImage.load(TM_ISSUE_URL+"model.json", TM_ISSUE_URL+"metadata.json");
-      return _issueModelPromise;
+      if(_tmIssueModelPromise) return _tmIssueModelPromise;
+      _tmIssueModelPromise = (async ()=>{
+        if(!window.tmImage){
+          throw new Error("tmImage not found. Check teachablemachine-image script tag.");
+        }
+        const modelURL = TM_ISSUE_URL + "model.json";
+        const metadataURL = TM_ISSUE_URL + "metadata.json";
+        return await window.tmImage.load(modelURL, metadataURL);
+      })();
+      return _tmIssueModelPromise;
     }
 
-    // If your TM labels already match category names, mapping is direct.
-    function mapIssueLabelToCategory(label){
-      const norm = (label||"").toLowerCase();
-      // direct match
-      for(const c of CATEGORIES){
-        if(c.toLowerCase() === norm) return c;
-      }
-      // loose matches
-      if(norm.includes("pothole")) return "Pothole";
-      if(norm.includes("street") && norm.includes("light")) return "Streetlight";
-      if(norm.includes("garbage") || norm.includes("trash") || norm.includes("waste")) return "Garbage";
-      if(norm.includes("water") || norm.includes("leak")) return "Water";
-      if(norm.includes("safety") || norm.includes("hazard") || norm.includes("accident")) return "Safety";
-      if(norm.includes("other") || norm.includes("unknown") || norm.includes("none")) return "Other";
+    function _normKey(s){
+      return (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+    }
+
+    function mapLabelToCategory(label){
+      const k = _normKey(label);
+
+      // If your Teachable Machine class names match app categories, this works automatically:
+      try{
+        const direct = (typeof CATEGORIES !== "undefined")
+          ? CATEGORIES.find(c => _normKey(c) === k)
+          : null;
+        if(direct) return direct;
+      }catch(e){}
+
+      // Numeric/class mapping (e.g., "class 1" -> Garbage, "class 2" -> Pothole)
+      if(k === "1" || k.includes("class 1") || k.includes("class_1") || k.includes("class-1")) return "Garbage";
+      if(k === "2" || k.includes("class 2") || k.includes("class_2") || k.includes("class-2")) return "Pothole";
+
+      // Fallback keyword mapping (handles labels like "Street Light", "Trash", "Water leak")
+      if(k.includes("pothole")) return "Pothole";
+      if(k.includes("street") && k.includes("light")) return "Streetlight";
+      if(k.includes("garbage") || k.includes("trash") || k.includes("waste")) return "Garbage";
+      if(k.includes("water") || k.includes("leak")) return "Water";
+      if(k.includes("safety") || k.includes("hazard") || k.includes("accident")) return "Safety";
+      if(k.includes("other")) return "Other";
+
       return null;
     }
 
-    async function predictIssueFromFile(file){
-      const model = await loadIssueModel();
+    async function fileToHtmlImage(file){
+      const dataUrl = await fileToDataUrl(file);
       const img = new Image();
-      img.src = await fileToDataUrl(file);
-      await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; });
-      const preds = await model.predict(img);
-      const sorted = [...preds].sort((a,b)=>b.probability-a.probability);
-      const top = sorted[0] || { className: "Unknown", probability: 0 };
+      img.src = dataUrl;
+      await new Promise((res, rej)=>{
+        img.onload = res;
+        img.onerror = rej;
+      });
+      return img;
+    }
+
+    async function recognizeIssueFromFile(file){
+      const model = await loadIssueModel();
+      const img = await fileToHtmlImage(file);
+      const preds = await model.predict(img); // [{className, probability}, ...]
+      preds.sort((a,b)=>b.probability - a.probability);
+      const top = preds[0] || {className:"Unknown", probability:0};
       return {
-        topLabel: top.className,
-        topConfidence: top.probability,
-        topCategory: mapIssueLabelToCategory(top.className),
-        all: sorted.slice(0,3).map(p=>({label:p.className, confidence:p.probability}))
+        label: top.className,
+        confidence: top.probability,
+        category: mapLabelToCategory(top.className),
+        all: preds
       };
     }
 
-    let _faceModelPromise = null;
-    async function loadFaceModel(){
-      if(_faceModelPromise) return _faceModelPromise;
-      _faceModelPromise = window.tmImage.load(TM_GOV_FACE_URL+"model.json", TM_GOV_FACE_URL+"metadata.json");
-      return _faceModelPromise;
-    }
+    // --- AI Face Login (Teachable Machine, runs in browser) ---
+    const TM_GOV_FACE_URL = "https://teachablemachine.withgoogle.com/models/mpufe0g7d/";
+    let _tmGovFaceModelPromise = null;
 
-    function isFaceLabelAllowed(label){
-      const norm = (label||"").toLowerCase();
-      return !(norm.includes("unknown") || norm.includes("other") || norm.includes("none") || norm.includes("background"));
-    }
-
-    // ---------------------------
-    // Seed technicians (with phones)
-    // ---------------------------
-    const DEFAULT_TECHNICIANS = {
-      "Roads": [
-        { id:"RD-001", name:"Senthil", phone:"+919000000001", available:true, currentTask:null },
-        { id:"RD-002", name:"Karthik", phone:"+919000000002", available:true, currentTask:null }
-      ],
-      "Electrical": [
-        { id:"EL-001", name:"Ravi", phone:"+919000000011", available:true, currentTask:null },
-        { id:"EL-002", name:"Suresh", phone:"+919000000012", available:true, currentTask:null }
-      ],
-      "Sanitation": [
-        { id:"SN-001", name:"Priya", phone:"+919000000021", available:true, currentTask:null },
-        { id:"SN-002", name:"Divya", phone:"+919000000022", available:true, currentTask:null }
-      ],
-      "Water Supply": [
-        { id:"WT-001", name:"Arun", phone:"+919000000031", available:true, currentTask:null },
-        { id:"WT-002", name:"Mani", phone:"+919000000032", available:true, currentTask:null }
-      ],
-      "Public Safety": [
-        { id:"PS-001", name:"Deepak", phone:"+919000000041", available:true, currentTask:null }
-      ],
-      "General": [
-        { id:"GN-001", name:"Team", phone:"+919000000051", available:true, currentTask:null }
-      ]
-    };
-
-    function useTechnicians(){
-      const [techs, setTechs] = useState(()=>loadLS(STORAGE.technicians, DEFAULT_TECHNICIANS));
-
-      useEffect(()=>saveLS(STORAGE.technicians, techs), [techs]);
-
-      const findAvailable = (dept)=>{
-        const list = techs[dept] || [];
-        return list.find(t=>t.available) || null;
-      };
-
-      const assign = (dept, reportId)=>{
-        const t = findAvailable(dept);
-        if(!t) return null;
-        setTechs(prev=>({
-          ...prev,
-          [dept]: (prev[dept]||[]).map(x => x.id===t.id ? {...x, available:false, currentTask: reportId} : x)
-        }));
-        return t;
-      };
-
-      const release = (dept, techId)=>{
-        setTechs(prev=>({
-          ...prev,
-          [dept]: (prev[dept]||[]).map(x => x.id===techId ? {...x, available:true, currentTask:null} : x)
-        }));
-      };
-
-      return { techs, setTechs, findAvailable, assign, release };
-    }
-
-    // ---------------------------
-    // UI Components
-    // ---------------------------
-    function Badge({children, tone="slate"}){
-      const map = {
-        slate:"bg-slate-100 text-slate-700 border-slate-200",
-        green:"bg-emerald-50 text-emerald-700 border-emerald-200",
-        yellow:"bg-amber-50 text-amber-700 border-amber-200",
-        red:"bg-rose-50 text-rose-700 border-rose-200",
-        blue:"bg-sky-50 text-sky-700 border-sky-200",
-        purple:"bg-violet-50 text-violet-700 border-violet-200"
-      };
-      return <span className={"inline-flex items-center px-2 py-0.5 text-xs border rounded-full " + (map[tone]||map.slate)}>{children}</span>;
-    }
-
-    function Toast({toast, onClose}){
-      useEffect(()=>{
-        if(!toast) return;
-        const t = setTimeout(()=>onClose(), 2500);
-        return ()=>clearTimeout(t);
-      }, [toast]);
-      if(!toast) return null;
-      return (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-          <div className="bg-white border border-slate-200 shadow-lg rounded-2xl px-4 py-3 text-sm">
-            {toast}
-          </div>
-        </div>
-      );
-    }
-
-    function SectionTitle({title, subtitle}){
-      return (
-        <div className="mb-3">
-          <div className="text-xl font-semibold">{title}</div>
-          {subtitle && <div className="text-sm text-slate-600 mt-1">{subtitle}</div>}
-        </div>
-      );
-    }
-
-    function RolePicker({onPick}){
-      return (
-        <div className="max-w-3xl mx-auto p-6">
-          <div className="bg-white border border-slate-200 shadow-sm card p-6">
-            <div className="text-2xl font-bold">FixCity</div>
-            <div className="text-slate-600 mt-1">Crowdsourced civic issue reporting and resolution</div>
-
-            <div className="grid sm:grid-cols-3 gap-3 mt-6">
-              <button onClick={()=>onPick("citizen")} className="p-4 border rounded-2xl hover:bg-slate-50 text-left">
-                <div className="font-semibold">Citizen</div>
-                <div className="text-sm text-slate-600 mt-1">Report issues, track status, upvote duplicates</div>
-              </button>
-              <button onClick={()=>onPick("government")} className="p-4 border rounded-2xl hover:bg-slate-50 text-left">
-                <div className="font-semibold">Government</div>
-                <div className="text-sm text-slate-600 mt-1">Assign work, approve or reject, monitor SLAs</div>
-              </button>
-              <button onClick={()=>onPick("technician")} className="p-4 border rounded-2xl hover:bg-slate-50 text-left">
-                <div className="font-semibold">Technician</div>
-                <div className="text-sm text-slate-600 mt-1">View tasks, update progress, upload completion photo</div>
-              </button>
-            </div>
-
-            <div className="text-xs text-slate-500 mt-6">
-              Tip: For GitHub Pages, add an empty <span className="font-mono">.nojekyll</span> file to avoid template processing issues.
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    function CitizenView({reports, setReports, settings, setToast}){
-      const [profile, setProfile] = useState(()=>loadLS(STORAGE.publicProfile, {name:"", phone:""}));
-      const [photoFile, setPhotoFile] = useState(null);
-      const [photoPreview, setPhotoPreview] = useState("");
-      const [category, setCategory] = useState("Pothole");
-      const [description, setDescription] = useState("");
-      const [priority, setPriority] = useState("Medium");
-      const [lat, setLat] = useState("");
-      const [lng, setLng] = useState("");
-
-      // AI issue recognition state
-      const [ai, setAi] = useState({loading:false, top:null, preds:[], err:""});
-
-      useEffect(()=>saveLS(STORAGE.publicProfile, profile), [profile]);
-
-      async function captureLocation(){
-        if(!navigator.geolocation){
-          setToast("Geolocation not supported in this browser.");
-          return;
+    async function loadGovFaceModel(){
+      if(_tmGovFaceModelPromise) return _tmGovFaceModelPromise;
+      _tmGovFaceModelPromise = (async ()=>{
+        if(!window.tmImage){
+          throw new Error("tmImage not found. Check teachablemachine-image script tag.");
         }
-        navigator.geolocation.getCurrentPosition(
-          (pos)=>{
-            setLat(pos.coords.latitude.toFixed(6));
-            setLng(pos.coords.longitude.toFixed(6));
-            setToast("Location captured.");
-          },
-          ()=>{
-            setToast("Location permission denied.");
-          },
-          { enableHighAccuracy:true, timeout: 10000 }
-        );
-      }
+        const modelURL = TM_GOV_FACE_URL + "model.json";
+        const metadataURL = TM_GOV_FACE_URL + "metadata.json";
+        return await window.tmImage.load(modelURL, metadataURL);
+      })();
+      return _tmGovFaceModelPromise;
+    }
 
-      async function handlePhotoChange(e){
-        const f = e.target.files?.[0] || null;
-        setPhotoFile(f);
-        setAi({loading:false, top:null, preds:[], err:""});
-        if(!f){ setPhotoPreview(""); return; }
-        setPhotoPreview(await fileToDataUrl(f));
+    function _isUnknownFaceLabel(label){
+      const k = (label||"").toLowerCase();
+      return k.includes("unknown") || k.includes("other") || k.includes("none") || k.includes("no face");
+    }
 
-        // Run AI issue recognition
-        setAi(s=>({...s, loading:true, err:""}));
+    async function recognizeGovFaceFromVideo(videoEl){
+      const model = await loadGovFaceModel();
+      const preds = await model.predict(videoEl); // [{className, probability}, ...]
+      preds.sort((a,b)=>b.probability - a.probability);
+      const top = preds[0] || {className:"Unknown", probability:0};
+      return { label: top.className, confidence: top.probability, all: preds };
+    }
+
+
+function App(){
+      const [tab,setTab]=useState("report");
+      const [mobileNavOpen, setMobileNavOpen] = useState(false);
+      const [reports,setReports]=useReports();
+      // Listen to lightweight system events dispatched by widgets (e.g., ChatWidget)
+      useSystemEvents((e)=>{
+        if(!e || !e.type) return;
+        if(e.type === 'open-report'){
+          setTab('report');
+        }
+        if(e.type === 'open-my-reports'){
+          setTab('my');
+        }
+      });
+      const [filters,setFilters]=useState({category:"",status:"",priority:""});
+      const [userType,setUserType]=useState(""); // "public" or "government"
+      const [govProfile,setGovProfile]=useState(()=>{try{return JSON.parse(localStorage.getItem('govProfile')||"null")}catch{return null}});
+      const [publicProfile,setPublicProfile]=useState(()=>{try{return JSON.parse(localStorage.getItem('publicProfile')||"null")}catch{return null}});
+       const [techLoginId, setTechLoginId] = useState("");
+       const [techError, setTechError] = useState("");
+       const [techProfile, setTechProfile] = useState(() => {
+         try {
+           return JSON.parse(localStorage.getItem('technicianProfile') || "null");
+         } catch {
+           return null;
+         }
+       });
+     
+       function handleTechnicianLogin(techId) {
+         const allTechs = Object.values(INITIAL_TECHNICIANS).flat();
+         const tech = allTechs.find(t => t.id === techId);
+         if (tech) {
+           localStorage.setItem('technicianProfile', JSON.stringify(tech));
+           setTechProfile(tech);
+           setUserType("technician");
+           setTechError("");
+         } else {
+           setTechError("Invalid technician ID. Please try again.");
+         }
+       }
+  const publicFileRef = useRef();
+  const completionFileRef = useRef();
+  const [pendingCompletionId, setPendingCompletionId] = useState(null);
+  const [tempPublic,setTempPublic]=useState({photo:null,name:'',phone:'',aadhaar:''});
+  const [pendingGovLogin, setPendingGovLogin] = useState(false);
+
+  // Handle technician completion photo upload
+  async function handleCompletionFileChange(e){
+    const file = e.target.files?.[0];
+    // reset the input so same file can be reselected later
+    try{ e.target.value = ''; }catch(e){}
+    if(!file){ setPendingCompletionId(null); return; }
+    if(!pendingCompletionId){ alert('No task selected for completion upload'); return; }
+    try{
+      const dataUrl = await fileToDataUrl(file);
+      const small = await resizeDataUrl(dataUrl, 1024, 0.75).catch(()=>dataUrl);
+      const now = new Date().toISOString();
+      // update the report with completed photo and a Pending Review status
+      setReports(prev => prev.map(r => r.id === pendingCompletionId ? ({
+        ...r,
+        status: 'Pending Review',
+        completedPhoto: small,
+        completedAt: now,
+        updates: [...(r.updates||[]), { at: now, status: 'Pending Review', note: `Completion photo uploaded by ${techProfile?.name || 'Technician'} (${techProfile?.id || ''})` }]
+      }) : r));
+
+      // Notify government and the reporter
+      pushNotification({ id: Date.now(), reportId: pendingCompletionId, message: `Technician ${techProfile?.name || ''} (${techProfile?.id || ''}) uploaded a completion photo for ${pendingCompletionId}. Please review and mark as resolved.`, at: now, type: 'government' });
+      pushNotification({ id: Date.now()+1, reportId: pendingCompletionId, message: `A completion photo has been uploaded for your report. Please review.`, at: now, type: 'public' });
+
+    }catch(err){
+      console.error('Completion photo upload failed', err);
+      alert('Unable to process the photo. Try a smaller image.');
+    }finally{
+      setPendingCompletionId(null);
+    }
+  }
+  const [tempGovId, setTempGovId] = useState('');
+
+  const govVideoRef = useRef(null);
+  const govStreamRef = useRef(null);
+  const [govCamOn,setGovCamOn]=useState(false);
+  const [govFaceLoading,setGovFaceLoading]=useState(false);
+  const [govFaceResult,setGovFaceResult]=useState(null);
+  const [govFaceError,setGovFaceError]=useState("");
+  const [govFaceVerified,setGovFaceVerified]=useState(false);
+  const GOV_FACE_MIN_CONF = 0.85;
+
+      const [pendingPublicLogin,setPendingPublicLogin]=useState(false);
+      const { technicians, assignTask, completeTask } = useTechnicians();
+  // Defensive: ensure technicians tab is only visible/active for government users.
+  // If userType changes away from 'government' while technicians tab is active,
+  // force the UI back to the default 'report' tab to prevent public access.
+  useEffect(()=>{
+    if(userType !== 'government' && tab === 'technicians'){
+      setTab('report');
+    }
+  }, [userType, tab]);
+      async function handlePublicFileChange(e){
+        const file = e.target.files?.[0]; if(!file) return;
+        const dataUrl = await fileToDataUrl(file);
+        const name = prompt('Your name', (publicProfile && publicProfile.name) || 'You') || 'You';
+        const phone = prompt('Contact number (optional)', (publicProfile && publicProfile.phone) || '') || '';
         try{
-          const res = await predictIssueFromFile(f);
-          setAi({loading:false, top:{label:res.topLabel, conf:res.topConfidence, cat:res.topCategory}, preds:res.all, err:""});
-          if(res.topCategory && res.topConfidence >= settings.issueAutoFillThreshold){
-            setCategory(res.topCategory);
-            if(!description.trim()){
-              setDescription(`Auto-detected: ${res.topLabel} (${Math.round(res.topConfidence*100)}%).`);
-            }
-          }
-        }catch(err){
-          console.error(err);
-          setAi({loading:false, top:null, preds:[], err:"AI recognition failed. Try another photo."});
+          // try to resize/compress before saving
+          const small = await resizeDataUrl(dataUrl, 1024, 0.75).catch(()=>dataUrl);
+          const profile = {photo: small, name, phone, at: new Date().toISOString()};
+          localStorage.setItem('publicProfile', JSON.stringify(profile)); setPublicProfile(profile);
+        }catch(e){
+          console.error('save public profile failed', e);
+          alert('Unable to save profile locally — image may be too large. Try using a smaller image or retry.');
         }
       }
+      function removePublicProfile(){localStorage.removeItem('publicProfile'); setPublicProfile(null)}
 
-      function findDuplicateCandidate(newReport){
-        const radM = settings.duplicateRadiusMeters;
-        const textTh = settings.duplicateTextSimilarity;
-
-        let best = null;
-        for(const r of reports){
-          if(r.status === "Resolved") continue;
-          if(r.category !== newReport.category) continue;
-
-          const d = haversineMeters(
-            Number(newReport.lat), Number(newReport.lng),
-            Number(r.lat), Number(r.lng)
-          );
-
-          const sim = textSimilarity(newReport.description, r.description);
-
-          const isDup = (d <= radM) || (sim >= textTh);
-          if(!isDup) continue;
-
-          // Score: closer + more similar
-          const score = (Math.max(0, (radM - d)) / radM) + sim;
-          if(!best || score > best.score){
-            best = { report: r, d, sim, score };
-          }
-        }
-        return best;
-      }
-
-      async function submitReport(){
-        if(!profile.name.trim()){
-          setToast("Please enter your name.");
-          return;
-        }
-        if(!description.trim()){
-          setToast("Please enter a description.");
-          return;
-        }
-        if(!lat || !lng){
-          setToast("Please capture location (or enter lat/lng).");
-          return;
-        }
-
-        const id = uid("TKT");
-        const now = new Date().toISOString();
-        const photo = photoPreview || null;
-
-        const report = {
-          id,
-          createdAt: now,
-          reporterName: profile.name.trim(),
-          reporterPhone: profile.phone.trim(),
-          category,
-          department: CATEGORY_TO_DEPT[category] || "General",
-          description: description.trim(),
-          priority,
-          lat: Number(lat),
-          lng: Number(lng),
-          photo,
-          status: "New",
-          upvotes: 0,
-          assignedTechId: null,
-          assignedTechName: null,
-          completionPhoto: null,
-          rejectReason: "",
-          aiIssue: ai?.top ? { label: ai.top.label, confidence: ai.top.conf } : null,
-          updates: [{ at: now, status: "New", note: "Reported by citizen" }]
-        };
-
-        // Duplicate check
-        const dup = findDuplicateCandidate(report);
-        if(dup){
-          const msg =
-            `Similar issue found (Ticket ${dup.report.id}).\n` +
-            `Distance: ${dup.d === Infinity ? "N/A" : Math.round(dup.d)}m, Similarity: ${Math.round(dup.sim*100)}%\n\n` +
-            `Upvote existing instead of creating new?`;
-          const upvote = window.confirm(msg);
-          if(upvote){
-            setReports(prev=>prev.map(r=>r.id===dup.report.id
-              ? ({...r, upvotes:(r.upvotes||0)+1, updates:[...r.updates, {at: now, status:r.status, note:`Upvoted by ${profile.name}`}]})
-              : r
-            ));
-            pushNotification({
-              type:"government",
-              reportId: dup.report.id,
-              at: now,
-              message: `Ticket ${dup.report.id} got an upvote (category: ${dup.report.category}).`
-            });
-            setToast("Upvoted the existing issue.");
+      // --- Government Face Login helpers (demo) ---
+      async function startGovCamera(){
+        setGovFaceError("");
+        setGovFaceResult(null);
+        try{
+          if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+            setGovFaceError("Camera is not supported in this browser.");
             return;
           }
-          // else continue to create new
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "user" },
+            audio: false
+          });
+          govStreamRef.current = stream;
+          const v = govVideoRef.current;
+          if(v){
+            v.srcObject = stream;
+            await v.play();
+            setGovCamOn(true);
+          }
+        }catch(e){
+          console.error(e);
+          setGovFaceError("Unable to access camera. Please allow camera permission.");
         }
-
-        setReports(prev=>[report, ...prev]);
-        setToast("Report submitted.");
-        // reset
-        setDescription("");
-        setPhotoFile(null);
-        setPhotoPreview("");
-        setAi({loading:false, top:null, preds:[], err:""});
       }
 
-      const myTickets = useMemo(()=>{
-        // show tickets created by this user (best-effort match)
-        const n = (profile.name||"").trim().toLowerCase();
-        return reports.filter(r => (r.reporterName||"").trim().toLowerCase() === n);
-      }, [reports, profile.name]);
+      function stopGovCamera(){
+        try{
+          const s = govStreamRef.current;
+          if(s){
+            s.getTracks().forEach(t=>t.stop());
+          }
+        }catch(e){}
+        govStreamRef.current = null;
+        setGovCamOn(false);
+      }
 
-      return (
-        <div className="max-w-5xl mx-auto p-6 space-y-6">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-2xl font-bold">Citizen</div>
-              <div className="text-sm text-slate-600">Report an issue, upvote duplicates, and track your tickets.</div>
+      // Stop camera if user leaves the login screen or closes the tab
+      useEffect(()=>{
+        return ()=>{
+          try{
+            const s = govStreamRef.current;
+            if(s) s.getTracks().forEach(t=>t.stop());
+          }catch(e){}
+        };
+      },[]);
+
+      async function scanGovFaceAndLogin(){
+        setGovFaceError("");
+        setGovFaceResult(null);
+        setGovFaceLoading(true);
+        try{
+          const v = govVideoRef.current;
+          if(!v || !govCamOn){
+            setGovFaceError("Start camera first.");
+            return;
+          }
+
+          const res = await recognizeGovFaceFromVideo(v);
+          setGovFaceResult(res);
+
+          // Special rule: if both class 1 and class 2 probabilities are >= 60% accept login
+          let class1Prob = 0, class2Prob = 0;
+          (res.all || []).forEach(p=>{
+            const k = (p.className||"").toLowerCase();
+            if(k === '1' || k.includes('class 1') || k.includes('class_1') || k.includes('class-1')) class1Prob = Math.max(class1Prob, p.probability);
+            if(k === '2' || k.includes('class 2') || k.includes('class_2') || k.includes('class-2')) class2Prob = Math.max(class2Prob, p.probability);
+          });
+          const specialOk = (class1Prob >= 0.6 && class2Prob >= 0.6);
+          if(specialOk){
+            // annotate result so UI shows something sensible
+            res.label = 'class1+class2';
+            res.confidence = Math.max(class1Prob, class2Prob);
+          }
+
+          const ok = specialOk || ((res.confidence >= GOV_FACE_MIN_CONF) && !_isUnknownFaceLabel(res.label));
+          if(!ok){
+            setGovFaceError(`Face not recognized (top: ${res.label} ${Math.round(res.confidence*100)}%). Try again.`);
+            return;
+          }
+
+          // Merge with any existing govProfile (keeps idImage if uploaded)
+          let existing = {};
+          try{ existing = JSON.parse(localStorage.getItem('govProfile')||'{}') || {}; }catch(e){ existing = {}; }
+
+          const profile = {
+            ...existing,
+            govId: res.label,
+            faceClass: res.label,
+            faceConfidence: res.confidence,
+            lastFaceLoginAt: new Date().toISOString(),
+          };
+
+          // Save profile immediately so it's available during the brief verified indicator
+          localStorage.setItem('govProfile', JSON.stringify(profile));
+          setGovProfile(profile);
+
+          // Show green tick + Verified briefly before redirecting into the app
+          setGovFaceVerified(true);
+          setGovFaceLoading(false);
+          setGovFaceError("");
+
+          setTimeout(()=>{
+            setGovFaceVerified(false);
+            setUserType('government');
+            setTab('report');
+            setPendingGovLogin(false);
+            setTempGovId('');
+            stopGovCamera();
+          }, 1100);
+        }catch(e){
+          console.error(e);
+          setGovFaceError("Unable to run face verification. Check model link and camera.");
+        }finally{
+          setGovFaceLoading(false);
+        }
+      }
+
+      // Only show login if not selected
+      const filtered=useMemo(()=>{
+        let base = reports;
+        // Government should see all reports (no reporter-name filtering)
+        return base.filter(r=>{
+          if(filters.category&&r.category!==filters.category)return false;
+          if(filters.status&&r.status!==filters.status)return false;
+          if(filters.priority&&r.priority!==filters.priority)return false;
+          return true;
+        });
+      },[reports,filters,userType]);
+      // Counts per category (used for government summary)
+      const categoryCounts = useMemo(()=>{
+        const out = Object.fromEntries(CATEGORIES.map(c=>[c,0]));
+        filtered.forEach(r=>{ if(r && r.category){ out[r.category] = (out[r.category]||0) + 1 }});
+        return out;
+      },[filtered]);
+  const [aboutOpen,setAboutOpen] = useState(false);
+  if(!userType) {
+        const bgUrl = `url("./rb.png")`;
+        return (
+          <div className="min-h-screen flex items-center justify-center relative" style={{backgroundImage: bgUrl, backgroundSize:'cover', backgroundPosition:'center'}}>
+            {/* slightly reduced overlay so background shows through more */}
+            <div className="absolute inset-0 bg-black/10 backdrop-blur-[2px]"></div>
+            {/* centered official-style header (clickable to open About modal) */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div role="button" tabIndex={0} onClick={()=>setAboutOpen(true)} onKeyDown={(e)=>{if(e.key==='Enter'||e.key===' ')setAboutOpen(true)}} className="text-center text-white px-4 cursor-pointer select-none" style={{zIndex:0}}>
+                <div className="text-2xl sm:text-4xl font-semibold tracking-wide drop-shadow-lg">GOVERNMENT OF INDIA</div>
+                <div className="text-lg sm:text-xl mt-1 drop-shadow">भारत सरकार • Centralised Civic Issue Reporting</div>
+                <div className="text-xs mt-2 opacity-90">Prototype / Demo — Not an official government portal</div>
+              </div>
             </div>
-          </div>
-
-          <div className="bg-white border border-slate-200 shadow-sm card p-6">
-            <SectionTitle title="Create a report" subtitle="Upload photo, location, and details. AI can auto-suggest the category." />
-
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium">Your name</label>
-                <input className="mt-1 w-full border rounded-xl px-3 py-2"
-                       value={profile.name}
-                       onChange={(e)=>setProfile(p=>({...p, name:e.target.value}))}
-                       placeholder="e.g., Mageshwar" />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Phone (optional)</label>
-                <input className="mt-1 w-full border rounded-xl px-3 py-2"
-                       value={profile.phone}
-                       onChange={(e)=>setProfile(p=>({...p, phone:e.target.value}))}
-                       placeholder="+91..." />
-              </div>
-            </div>
-
-            <div className="grid sm:grid-cols-3 gap-4 mt-4">
-              <div>
-                <label className="text-sm font-medium">Category</label>
-                <select className="mt-1 w-full border rounded-xl px-3 py-2"
-                        value={category}
-                        onChange={(e)=>setCategory(e.target.value)}>
-                  {CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Priority</label>
-                <select className="mt-1 w-full border rounded-xl px-3 py-2"
-                        value={priority}
-                        onChange={(e)=>setPriority(e.target.value)}>
-                  <option>Low</option>
-                  <option>Medium</option>
-                  <option>High</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Photo</label>
-                <input type="file" accept="image/*" className="mt-1 w-full"
-                       onChange={handlePhotoChange} />
-              </div>
-            </div>
-
-            {photoPreview && (
-              <div className="mt-3 grid sm:grid-cols-2 gap-3">
-                <img src={photoPreview} alt="preview" className="w-full max-h-64 object-cover rounded-2xl border" />
-                <div className="rounded-2xl border p-4 bg-slate-50">
-                  <div className="font-semibold">AI suggestion</div>
-                  {ai.loading && <div className="text-sm text-slate-600 mt-2">Analyzing…</div>}
-                  {ai.err && <div className="text-sm text-rose-600 mt-2">{ai.err}</div>}
-                  {ai.top && (
-                    <div className="mt-2 text-sm">
-                      <div>Top: <span className="font-medium">{ai.top.cat || ai.top.label}</span> ({Math.round(ai.top.conf*100)}%)</div>
-                      <div className="mt-2 space-y-1">
-                        {ai.preds.map((p,i)=>(
-                          <div key={i} className="flex items-center justify-between">
-                            <div className="text-slate-700">{p.label}</div>
-                            <div className="text-slate-500">{Math.round(p.confidence*100)}%</div>
-                          </div>
-                        ))}
+      {/* login card: centered on small screens, fixed to top-right on larger screens
+                translucent on desktop to match background */}
+      <div className="relative z-30 rounded-3xl p-6 w-full max-w-md text-center bg-white/95 text-slate-900 shadow-2xl border border-slate-200 transform transition-all duration-300 hover:scale-[1.02] sm:fixed sm:top-6 sm:right-6 sm:max-w-sm sm:rounded-2xl sm:bg-black/30 sm:text-white sm:border-white/20 sm:backdrop-blur-sm">
+              <h2 className="text-3xl font-bold mb-2 sm:text-white text-slate-900">Welcome Back</h2>
+              <p className="mb-6 text-base font-medium sm:text-slate-200 text-slate-600">Choose how you'd like to continue — public, government or technician.</p>
+              {!pendingPublicLogin && !pendingGovLogin ? (
+                <>
+                  <div className="flex flex-col gap-5">
+                    <button 
+                      className="px-6 py-4 rounded-2xl bg-gradient-to-r from-slate-800 to-slate-900 text-white font-semibold text-lg shadow-lg hover:shadow-xl transform transition-all duration-300 hover:-translate-y-1 hover:from-slate-700 hover:to-slate-800" 
+                      onClick={()=>setPendingPublicLogin(true)}
+                    >
+                      Public Login
+                    </button>
+                    <button 
+                      className="px-6 py-4 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold text-lg shadow-lg hover:shadow-xl transform transition-all duration-300 hover:-translate-y-1 hover:from-blue-500 hover:to-blue-600" 
+                      onClick={()=>setPendingGovLogin(true)}
+                    >
+                      Government Login
+                    </button>
+                    <div className="relative my-2">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-white/20"></div>
+                      </div>
+                      <div className="relative flex justify-center">
+                        <span className="px-4 text-sm text-white/70 bg-white/5 backdrop-blur-sm rounded-full py-1">or continue as</span>
                       </div>
                     </div>
-                  )}
-                  <div className="text-xs text-slate-500 mt-3">
-                    Auto-fill threshold: {Math.round(settings.issueAutoFillThreshold*100)}%
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4">
-              <label className="text-sm font-medium">Description</label>
-              <textarea className="mt-1 w-full border rounded-xl px-3 py-2 min-h-[90px]"
-                        value={description}
-                        onChange={(e)=>setDescription(e.target.value)}
-                        placeholder="Describe the issue clearly…" />
-            </div>
-
-            <div className="grid sm:grid-cols-3 gap-4 mt-4">
-              <div>
-                <label className="text-sm font-medium">Latitude</label>
-                <input className="mt-1 w-full border rounded-xl px-3 py-2"
-                       value={lat}
-                       onChange={(e)=>setLat(e.target.value)}
-                       placeholder="12.9716" />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Longitude</label>
-                <input className="mt-1 w-full border rounded-xl px-3 py-2"
-                       value={lng}
-                       onChange={(e)=>setLng(e.target.value)}
-                       placeholder="77.5946" />
-              </div>
-              <div className="flex items-end gap-2">
-                <button onClick={captureLocation} className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50">
-                  Capture location
-                </button>
-                <button onClick={submitReport} className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800">
-                  Submit
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-200 shadow-sm card p-6">
-            <SectionTitle title="My tickets" subtitle="Tickets reported with your name (best-effort match)." />
-            {myTickets.length === 0 ? (
-              <div className="text-sm text-slate-600">No tickets yet.</div>
-            ) : (
-              <div className="space-y-3">
-                {myTickets.map(r=>(
-                  <ReportCard key={r.id} r={r} />
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white border border-slate-200 shadow-sm card p-6">
-            <SectionTitle title="All active issues" subtitle="Upvotes help government prioritize duplicates." />
-            <div className="space-y-3">
-              {reports.filter(r=>r.status!=="Resolved").slice(0,20).map(r=>(
-                <div key={r.id} className="border rounded-2xl p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-semibold">{r.category} • {r.department}</div>
-                    <div className="flex items-center gap-2">
-                      <Badge tone="purple">Upvotes: {r.upvotes||0}</Badge>
-                      <Badge tone={r.status==="New"?"blue":r.status==="Assigned"?"yellow":r.status==="In Progress"?"yellow":r.status==="Pending Review"?"purple":"slate"}>{r.status}</Badge>
+                    <div className="space-y-4">
+                      <input 
+                        type="text" 
+                        value={techLoginId}
+                        onChange={(e) => {
+                          setTechLoginId(e.target.value);
+                          setTechError("");
+                        }}
+                        placeholder="Enter Technician ID (e.g., pw1, el2)"
+                        className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200 transition-all duration-200 sm:bg-white/10 sm:border-white/20 sm:text-slate-900 sm:placeholder-slate-400"
+                      />
+                      <button 
+                        className="w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-amber-500/90 to-amber-600/90 text-white font-semibold text-lg shadow-lg hover:shadow-xl transform transition-all duration-300 hover:-translate-y-1 hover:from-amber-400 hover:to-amber-500"
+                        onClick={() => handleTechnicianLogin(techLoginId)}
+                      >
+                        Technician Login
+                      </button>
+                      {techError && (
+                        <div className="text-red-700 text-sm mt-2 bg-red-50 py-2 px-4 rounded-lg">{techError}</div>
+                      )}
                     </div>
                   </div>
-                  <div className="text-sm text-slate-700 mt-1">{r.description}</div>
-                  <div className="text-xs text-slate-500 mt-2">{r.id} • {fmt(r.createdAt)}</div>
+                  <div className="mt-6 text-sm text-slate-700 bg-slate-50 p-3 rounded-xl">
+                    Note: Government login requires an ID proof image upload. This is stored locally and only used for demo access.
+                  </div>
+                </>
+              ) : pendingPublicLogin ? (
+                <div className="bg-white/5 rounded-xl p-4 mt-4 text-left text-sm">
+                  <h3 className="text-lg font-semibold mb-2">Public — Enter Aadhaar</h3>
+                  <p className="mb-3">Please enter your 12-digit Aadhaar number and your name/phone. This is stored locally for the demo and used only for identification.</p>
+                  <div className="space-y-3">
+                    <input value={tempPublic.aadhaar} onChange={(e)=>setTempPublic(tp=>({...tp,aadhaar:e.target.value.replace(/\s+/g,'')}))} className="w-full border rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400" placeholder="Aadhaar number (12 digits)" />
+                    <input value={tempPublic.name} onChange={(e)=>setTempPublic(tp=>({...tp,name:e.target.value}))} className="w-full border rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400" placeholder="Your name" />
+                    <input value={tempPublic.phone} onChange={(e)=>setTempPublic(tp=>({...tp,phone:e.target.value}))} className="w-full border rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400" placeholder="Phone (optional)" />
+                    <div className="flex items-center gap-2 justify-center">
+                      <button onClick={async ()=>{const aad = (tempPublic.aadhaar||'').replace(/\s+/g,''); if(!/^[0-9]{12}$/.test(aad)){alert('Please enter a valid 12-digit Aadhaar number');return} try{const profile={aadhaar:aad,name:tempPublic.name||'You',phone:tempPublic.phone||'',at:new Date().toISOString()}; localStorage.setItem('publicProfile',JSON.stringify(profile)); setPublicProfile(profile); setUserType('public'); setTab('report'); setPendingPublicLogin(false); setTempPublic(tp=>({...tp,photo:null}));}catch(e){console.error(e);alert('Unable to save profile locally')}}} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Save & Continue</button>
+                      <button onClick={()=>{setPendingPublicLogin(false); setTempPublic({photo:null,name:'',phone:'',aadhaar:''})}} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Back</button>
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
+              
+              ) : pendingGovLogin ? (
+                <div className="bg-white/5 rounded-xl p-4 mt-4 text-left text-sm">
+                  <h3 className="text-lg font-semibold mb-2">Government — Face Login</h3>
+                  <p className="mb-3">Allow camera access and scan your face to continue. This uses your Teachable Machine model in the browser.</p>
+
+                  <div className="space-y-3">
+                    <div className="w-full rounded-xl border overflow-hidden bg-black/10 relative">
+                      <video ref={govVideoRef} playsInline muted className="w-full h-56 object-cover" />
+
+                      <div className={`scanner-overlay ${govFaceLoading ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}>
+                        <div className="ring-wrap" aria-hidden>
+                          <div className="glow-ring" />
+                        </div>
+                        <div className="scanline" aria-hidden />
+                        <div className="scanner-status">{govFaceLoading ? "Scanning — hold still" : "Ready"}</div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 justify-center flex-wrap">
+                      {!govCamOn ? (
+                        <button onClick={startGovCamera} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Start Camera</button>
+                      ) : (
+                        <button onClick={stopGovCamera} className="px-4 py-2 rounded-xl bg-slate-700 text-white">Stop Camera</button>
+                      )}
+
+                      <button
+                        disabled={!govCamOn || govFaceLoading}
+                        onClick={scanGovFaceAndLogin}
+                        className="px-4 py-2 rounded-xl bg-emerald-700 text-white disabled:opacity-50"
+                      >
+                        {govFaceLoading ? "Scanning..." : "Scan & Login"}
+                      </button>
+
+                      <button
+                        onClick={()=>{
+                          stopGovCamera();
+                          setPendingGovLogin(false);
+                          setTempGovId('');
+                          setGovFaceError('');
+                          setGovFaceResult(null);
+                        }}
+                        className="px-4 py-2 rounded-xl bg-blue-700 text-white"
+                      >
+                        Back
+                      </button>
+                    </div>
+
+                    {govFaceResult && (
+                      <div className="text-xs text-slate-700 bg-white/60 rounded-lg p-2 border">
+                        Top match: <span className="font-medium">{govFaceResult.label}</span> ({Math.round(govFaceResult.confidence*100)}%)
+                      </div>
+                    )}
+
+                    {govFaceVerified && (
+                      <div className="flex items-center justify-center gap-2 mt-2 text-emerald-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                        <span className="font-semibold">Verified</span>
+                      </div>
+                    )}
+
+                    {govFaceError && (
+                      <div className="text-xs text-rose-700 bg-rose-50 rounded-lg p-2 border border-rose-200">
+                        {govFaceError}
+                      </div>
+                    )}
+
+                    <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border">
+                      Note: This is a demo face classifier, not secure authentication. For real systems use proper server-side login and liveness checks.
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+</div>
           </div>
-        </div>
-      );
-    }
-
-    function ReportCard({r}){
-      return (
-        <div className="border rounded-2xl p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="font-semibold">{r.category} • {r.department}</div>
-              <div className="text-sm text-slate-700 mt-1">{r.description}</div>
-              <div className="text-xs text-slate-500 mt-2">{r.id} • {fmt(r.createdAt)}</div>
-            </div>
-            <div className="flex flex-col items-end gap-2">
-              <Badge tone={r.priority==="High"?"red":r.priority==="Medium"?"yellow":"slate"}>{r.priority}</Badge>
-              <Badge tone={r.status==="Resolved"?"green":r.status==="Pending Review"?"purple":r.status==="In Progress"?"yellow":r.status==="Assigned"?"blue":"slate"}>{r.status}</Badge>
-              <Badge tone="purple">Upvotes: {r.upvotes||0}</Badge>
-            </div>
-          </div>
-          {r.rejectReason && (
-            <div className="mt-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl p-3">
-              <div className="font-semibold">Rejected reason</div>
-              <div className="mt-1">{r.rejectReason}</div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    function GovernmentLogin({settings, onLoggedIn, setToast}){
-      const videoRef = useRef(null);
-      const streamRef = useRef(null);
-      const [status, setStatus] = useState("Camera off");
-      const [scanning, setScanning] = useState(false);
-      const [last, setLast] = useState(null); // {label, conf}
-
-      async function startCamera(){
-        try{
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:"user" }, audio:false });
-          streamRef.current = stream;
-          if(videoRef.current){
-            videoRef.current.srcObject = stream;
-            await videoRef.current.play();
-          }
-          setStatus("Camera ready");
-        }catch(e){
-          console.error(e);
-          setStatus("Camera blocked");
-          setToast("Camera permission denied.");
-        }
+        );
       }
-
-      function stopCamera(){
-        if(streamRef.current){
-          streamRef.current.getTracks().forEach(t=>t.stop());
-          streamRef.current = null;
-        }
-        setStatus("Camera off");
-      }
-
-      async function scanAndLogin(){
-        if(!videoRef.current){
-          setToast("Camera not ready.");
-          return;
-        }
-        setScanning(true);
-        setStatus("Loading model…");
-        try{
-          const model = await loadFaceModel();
-          setStatus("Scanning…");
-          const preds = await model.predict(videoRef.current);
-          const sorted = [...preds].sort((a,b)=>b.probability-a.probability);
-          const top = sorted[0] || { className:"Unknown", probability:0 };
-          setLast({label: top.className, conf: top.probability});
-
-          if(isFaceLabelAllowed(top.className) && top.probability >= settings.faceLoginThreshold){
-            const prof = { label: top.className, confidence: top.probability, at: new Date().toISOString() };
-            saveLS(STORAGE.govProfile, prof);
-            setStatus("Login success");
-            setToast("Government login successful.");
-            onLoggedIn(prof);
-          }else{
-            setStatus("Face not recognized");
-            setToast("Face not recognized. Try again.");
-          }
-        }catch(e){
-          console.error(e);
-          setStatus("Scan failed");
-          setToast("Face scan failed.");
-        }finally{
-          setScanning(false);
-        }
-      }
-
-      return (
-        <div className="max-w-3xl mx-auto p-6">
-          <div className="bg-white border border-slate-200 shadow-sm card p-6">
-            <SectionTitle title="Government Login" subtitle="Use face recognition to access the dashboard." />
-            <div className="grid sm:grid-cols-2 gap-4 items-start">
-              <div>
-                <video ref={videoRef} className="w-full rounded-2xl border bg-black" playsInline muted />
-                <div className="text-xs text-slate-500 mt-2">Status: {status}</div>
-                {last && (
-                  <div className="text-sm mt-2">
-                    Last: <span className="font-medium">{last.label}</span> ({Math.round(last.conf*100)}%)
+      return(
+        <div className="min-h-screen">
+          <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-slate-200">
+            <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="p-2 rounded-2xl bg-slate-900 text-white"><AlertIcon/></span>
+                <h1 className="font-semibold text-lg">Crowdsourced Civic Issue Reporter</h1>
+                <span className="text-xs text-slate-500 hidden sm:inline">Prototype – single file</span>
+              </div>
+              {/* Show government or public thumbnail if available */}
+              <div className="flex items-center gap-3">
+                {userType === 'government' && govProfile && govProfile.idImage && (
+                  <img src={govProfile.idImage} alt="Gov ID" className="w-10 h-10 rounded-md object-cover border"/>
+                )}
+                {userType === 'public' && publicProfile && publicProfile.photo && (
+                  <img src={publicProfile.photo} alt="Your profile" className="w-10 h-10 rounded-md object-cover border"/>
+                )}
+                {/* hidden file input for public profile upload (header) */}
+                <input ref={publicFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePublicFileChange} />
+                {/* Hidden input for technicians to upload completion photos */}
+                <input ref={completionFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCompletionFileChange} />
+                {userType === 'public' && (
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>publicFileRef.current?.click()} className="text-xs px-2 py-1 rounded bg-slate-100 border">{publicProfile? 'Replace' : 'Upload'}</button>
+                    {publicProfile && <button onClick={removePublicProfile} className="text-xs px-2 py-1 rounded border text-red-600">Remove</button>}
                   </div>
                 )}
               </div>
-              <div className="space-y-3">
-                <div className="rounded-2xl border p-4 bg-slate-50 text-sm">
-                  <div className="font-semibold">How it works</div>
-                  <div className="text-slate-600 mt-1">
-                    Start camera → Scan & Login. If any trained class matches your face with enough confidence, you are logged in.
-                  </div>
-                  <div className="text-xs text-slate-500 mt-2">
-                    Threshold: {Math.round(settings.faceLoginThreshold*100)}%
-                  </div>
-                </div>
-                <div className="flex gap-2 flex-wrap">
-                  <button onClick={startCamera} className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50">Start camera</button>
-                  <button disabled={scanning} onClick={scanAndLogin} className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60">
-                    {scanning ? "Scanning…" : "Scan & Login"}
-                  </button>
-                  <button onClick={stopCamera} className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50">Stop</button>
-                </div>
-                <button onClick={()=>{ stopCamera(); onLoggedIn(null); }} className="text-sm underline text-slate-600">Back</button>
+              <div className="flex items-center gap-3">
+                {/* Mobile nav toggle */}
+                <button className="sm:hidden p-2 rounded-md text-slate-600 hover:bg-slate-100" onClick={()=>setMobileNavOpen(v=>!v)} aria-label="Toggle navigation">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                </button>
+                <nav className="hidden sm:flex gap-1">
+                <TabButton label="Report" active={tab==="report"} onClick={()=>setTab("report")}/>
+                {userType==="public" && <TabButton label="My Reports" active={tab==="my"} onClick={()=>setTab("my")}/>} 
+                {userType === 'government' && (
+                  !govProfile ? (
+                    <>
+                      <button title="Upload ID to access admin" className="px-3 py-1.5 rounded-full text-sm border bg-white text-slate-400 border-slate-200 cursor-not-allowed">Admin 🔒</button>
+                      <button title="Upload ID to access technicians" className="px-3 py-1.5 rounded-full text-sm border bg-white text-slate-400 border-slate-200 cursor-not-allowed">Technicians 🔒</button>
+                    </>
+                  ) : (
+                    <>
+                      <TabButton label="Admin" active={tab==="admin"} onClick={()=>setTab("admin")}/>
+                      <TabButton label="Technicians" active={tab==="technicians"} onClick={()=>setTab("technicians")}/>
+                    </>
+                  )
+                )}
+                </nav>
               </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    function GovernmentView({reports, setReports, techApi, settings, setSettings, setToast}){
-      const [tab, setTab] = useState("dashboard");
-      const [filter, setFilter] = useState({status:"All", dept:"All"});
-      const notifs = useMemo(()=>loadLS(STORAGE.notifications, []).filter(n=>n.type==="government"), [reports]);
-
-      useEffect(()=>{
-        const on = ()=>{ /* trigger rerender by changing state? easiest via toast noop */ setTab(t=>t); };
-        window.addEventListener("fixcity-notif", on);
-        return ()=>window.removeEventListener("fixcity-notif", on);
-      }, []);
-
-      const filtered = useMemo(()=>{
-        return reports.filter(r=>{
-          if(filter.status !== "All" && r.status !== filter.status) return false;
-          if(filter.dept !== "All" && r.department !== filter.dept) return false;
-          return true;
-        });
-      }, [reports, filter]);
-
-      const stats = useMemo(()=>{
-        const s = { New:0, Assigned:0, "In Progress":0, "Pending Review":0, Resolved:0 };
-        for(const r of reports){ s[r.status] = (s[r.status]||0)+1; }
-        return s;
-      }, [reports]);
-
-      function updateReport(id, updater){
-        setReports(prev=>prev.map(r=>r.id===id ? updater(r) : r));
-      }
-
-      async function assignNow(r){
-        const now = new Date().toISOString();
-        const tech = techApi.assign(r.department, r.id);
-        if(!tech){
-          setToast("No free technician available for this department.");
-          return;
-        }
-
-        updateReport(r.id, (x)=>({
-          ...x,
-          status: "Assigned",
-          assignedTechId: tech.id,
-          assignedTechName: tech.name,
-          updates: [...x.updates, { at: now, status:"Assigned", note:`Assigned to technician ${tech.name} (${tech.id})` }]
-        }));
-
-        pushNotification({
-          type:"technician",
-          technicianId: tech.id,
-          reportId: r.id,
-          at: now,
-          message: `New task assigned: ${r.category} (${r.department}). Ticket ${r.id}.`
-        });
-
-        // SMS trigger
-        await sendTechnicianSMS(settings, tech, { ...r, id: r.id });
-
-        setToast(`Assigned to ${tech.name}`);
-      }
-
-      function approve(r){
-        const now = new Date().toISOString();
-        // release technician on approval
-        if(r.assignedTechId){
-          techApi.release(r.department, r.assignedTechId);
-        }
-        updateReport(r.id, (x)=>({
-          ...x,
-          status: "Resolved",
-          rejectReason: "",
-          updates: [...x.updates, { at: now, status:"Resolved", note:"Approved by government" }]
-        }));
-        pushNotification({ type:"citizen", reportId:r.id, at: now, message:`Your ticket ${r.id} has been approved and marked resolved.` });
-        setToast("Approved and resolved.");
-      }
-
-      function reject(r){
-        const reason = prompt("Rejection reason (required):");
-        if(!reason || !reason.trim()){
-          setToast("Rejection reason is required.");
-          return;
-        }
-        const now = new Date().toISOString();
-        // keep technician assigned but set back to In Progress (or you can release; for demo we keep assigned)
-        updateReport(r.id, (x)=>({
-          ...x,
-          status: "In Progress",
-          rejectReason: reason.trim(),
-          updates: [...x.updates, { at: now, status:"In Progress", note:`Rejected by government: ${reason.trim()}` }]
-        }));
-        pushNotification({ type:"technician", reportId:r.id, at: now, message:`Ticket ${r.id} was rejected. Reason: ${reason.trim()}` });
-        pushNotification({ type:"citizen", reportId:r.id, at: now, message:`Your ticket ${r.id} review was rejected. Reason: ${reason.trim()}` });
-        setToast("Rejected and sent back to In Progress.");
-      }
-
-      function exportCsv(){
-        const headers = ["id","createdAt","category","department","priority","status","upvotes","lat","lng","assignedTechId","assignedTechName","description"];
-        const rows = reports.map(r=>headers.map(h=>{
-          const v = r[h];
-          const s = (v===null || v===undefined) ? "" : String(v);
-          return '"' + s.replace(/"/g,'""') + '"';
-        }).join(","));
-        const csv = headers.join(",") + "\n" + rows.join("\n");
-        const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "fixcity_reports.csv";
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-
-      return (
-        <div className="max-w-6xl mx-auto p-6 space-y-6">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-2xl font-bold">Government</div>
-              <div className="text-sm text-slate-600">Assign technicians, approve or reject pending review, and monitor issues.</div>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <button onClick={exportCsv} className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50">Export CSV</button>
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-200 shadow-sm card p-5">
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(stats).map(([k,v])=>(
-                <div key={k} className="px-3 py-2 border rounded-xl bg-slate-50 text-sm">
-                  <span className="font-semibold">{k}:</span> {v}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white border border-slate-200 shadow-sm card p-4">
-            <div className="flex gap-2 flex-wrap">
-              <button onClick={()=>setTab("dashboard")} className={"px-4 py-2 rounded-xl border " + (tab==="dashboard"?"bg-slate-900 text-white border-slate-900":"bg-white hover:bg-slate-50")}>Dashboard</button>
-              <button onClick={()=>setTab("technicians")} className={"px-4 py-2 rounded-xl border " + (tab==="technicians"?"bg-slate-900 text-white border-slate-900":"bg-white hover:bg-slate-50")}>Technicians</button>
-              <button onClick={()=>setTab("notifications")} className={"px-4 py-2 rounded-xl border " + (tab==="notifications"?"bg-slate-900 text-white border-slate-900":"bg-white hover:bg-slate-50")}>Notifications</button>
-              <button onClick={()=>setTab("settings")} className={"px-4 py-2 rounded-xl border " + (tab==="settings"?"bg-slate-900 text-white border-slate-900":"bg-white hover:bg-slate-50")}>Settings</button>
-            </div>
-          </div>
-
-          {tab==="dashboard" && (
-            <div className="bg-white border border-slate-200 shadow-sm card p-6">
-              <SectionTitle title="Reports" subtitle="Assign work and review completion. Upvotes indicate duplicates." />
-              <div className="flex flex-wrap gap-3 mb-4">
-                <div>
-                  <label className="text-sm font-medium">Status</label>
-                  <select className="mt-1 border rounded-xl px-3 py-2"
-                          value={filter.status}
-                          onChange={(e)=>setFilter(f=>({...f, status:e.target.value}))}>
-                    <option>All</option>
-                    <option>New</option>
-                    <option>Assigned</option>
-                    <option>In Progress</option>
-                    <option>Pending Review</option>
-                    <option>Resolved</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Department</label>
-                  <select className="mt-1 border rounded-xl px-3 py-2"
-                          value={filter.dept}
-                          onChange={(e)=>setFilter(f=>({...f, dept:e.target.value}))}>
-                    <option>All</option>
-                    {Array.from(new Set(reports.map(r=>r.department))).sort().map(d=><option key={d}>{d}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {filtered.length===0 ? (
-                  <div className="text-sm text-slate-600">No reports found.</div>
-                ) : filtered.map(r=>(
-                  <div key={r.id} className="border rounded-2xl p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-semibold">{r.category} • {r.department}</div>
-                        <div className="text-sm text-slate-700 mt-1">{r.description}</div>
-                        <div className="text-xs text-slate-500 mt-2">{r.id} • {fmt(r.createdAt)}</div>
-                        <div className="text-xs text-slate-500 mt-1">
-                          Location: {Number.isFinite(r.lat)?r.lat.toFixed(5):"?"}, {Number.isFinite(r.lng)?r.lng.toFixed(5):"?"}
-                        </div>
-                        {r.assignedTechName && (
-                          <div className="text-xs text-slate-500 mt-1">
-                            Assigned: {r.assignedTechName} ({r.assignedTechId})
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <Badge tone={r.priority==="High"?"red":r.priority==="Medium"?"yellow":"slate"}>{r.priority}</Badge>
-                        <Badge tone={r.status==="Resolved"?"green":r.status==="Pending Review"?"purple":r.status==="In Progress"?"yellow":r.status==="Assigned"?"blue":"slate"}>{r.status}</Badge>
-                        <Badge tone="purple">Upvotes: {r.upvotes||0}</Badge>
-                      </div>
-                    </div>
-
-                    {r.photo && (
-                      <div className="mt-3 grid sm:grid-cols-2 gap-3">
-                        <img src={r.photo} className="w-full max-h-64 object-cover rounded-2xl border" alt="report" />
-                        <div className="rounded-2xl border bg-slate-50 p-4">
-                          <div className="font-semibold">Updates</div>
-                          <div className="mt-2 space-y-2">
-                            {(r.updates||[]).slice().reverse().slice(0,4).map((u,i)=>(
-                              <div key={i} className="text-sm">
-                                <div className="text-slate-800"><span className="font-medium">{u.status}</span> • {fmt(u.at)}</div>
-                                <div className="text-slate-600">{u.note}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {r.completionPhoto && (
-                      <div className="mt-3">
-                        <div className="text-sm font-semibold">Completion photo</div>
-                        <img src={r.completionPhoto} className="mt-2 w-full max-h-72 object-cover rounded-2xl border" alt="completion" />
-                      </div>
-                    )}
-
-                    {r.rejectReason && (
-                      <div className="mt-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl p-3">
-                        <div className="font-semibold">Rejected reason</div>
-                        <div className="mt-1">{r.rejectReason}</div>
-                      </div>
-                    )}
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {r.status==="New" && (
-                        <button onClick={()=>assignNow(r)} className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800">
-                          Assign technician
-                        </button>
-                      )}
-                      {r.status==="Pending Review" && (
+              {/* Mobile nav menu */}
+              {mobileNavOpen && (
+                <div className="sm:hidden absolute top-full left-0 right-0 bg-white border-t border-slate-200 z-20">
+                  <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col gap-2">
+                    <button onClick={()=>{setTab('report'); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">Report</button>
+                    {userType==='public' && <button onClick={()=>{setTab('my'); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">My Reports</button>}
+                    {userType==='government' && (
+                      govProfile ? (
                         <>
-                          <button onClick={()=>approve(r)} className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">
-                            Approve & Resolve
-                          </button>
-                          <button onClick={()=>reject(r)} className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50">
-                            Reject (needs reason)
-                          </button>
+                          <button onClick={()=>{setTab('admin'); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">Admin</button>
+                          <button onClick={()=>{setTab('technicians'); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">Technicians</button>
                         </>
-                      )}
-                    </div>
+                      ) : (
+                        <div className="text-slate-500 text-sm px-3 py-2">Upload gov ID to unlock Admin & Technicians</div>
+                      )
+                    )}
+                    <button onClick={()=>{setUserType(''); setMobileNavOpen(false)}} className="text-left px-3 py-2 rounded hover:bg-slate-50">Logout</button>
                   </div>
-                ))}
+                </div>
+              )}
+              <div className="ml-4 flex items-center gap-2">
+                <span className="text-xs px-2 py-1 rounded bg-slate-200">{userType === "public" ? "Public" : "Government"}</span>
+                <button className="text-xs underline text-blue-600" onClick={()=>setUserType("")}>Logout</button>
               </div>
             </div>
-          )}
-
-          {tab==="technicians" && (
-            <div className="bg-white border border-slate-200 shadow-sm card p-6">
-              <SectionTitle title="Technicians" subtitle="Availability and contact. Phones are used for SMS alerts." />
-              <div className="grid lg:grid-cols-2 gap-4">
-                {Object.entries(techApi.techs).map(([dept, list])=>(
-                  <div key={dept} className="border rounded-2xl p-4">
-                    <div className="font-semibold">{dept}</div>
-                    <div className="mt-2 space-y-2">
-                      {list.map(t=>(
-                        <div key={t.id} className="flex items-center justify-between gap-2 border rounded-xl p-3">
-                          <div>
-                            <div className="font-medium">{t.name} <span className="text-xs text-slate-500">({t.id})</span></div>
-                            <div className="text-xs text-slate-500">Phone: {t.phone || "-"}</div>
+          </header>
+          <main className="max-w-6xl mx-auto p-4">
+            {/* Government onboarding: ask for ID proof if not provided */}
+            {userType === 'government' && !govProfile && (
+              <div className="max-w-md mx-auto mb-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 text-center">
+                  <h3 className="font-semibold text-lg mb-2">Government — Upload ID Proof</h3>
+                  <p className="text-sm text-slate-600 mb-3">Please upload an official ID image (badge, letterhead, or ID card). This will be stored locally for this demo.</p>
+                  <GovIdUploader onSave={async (dataUrl)=>{try{const small=await resizeDataUrl(dataUrl,1024,0.8).catch(()=>dataUrl); localStorage.setItem('govProfile',JSON.stringify({idImage:small,at:new Date().toISOString()}));setGovProfile({idImage:small,at:new Date().toISOString()});setTab('report');}catch(e){console.error(e);alert('Unable to save ID locally — try a smaller image')}}} />
+                </div>
+              </div>
+            )}
+            {tab==="report" && userType==="public" && !publicProfile && (
+              <div className="max-w-md mx-auto mb-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 text-center">
+                  <h3 className="font-semibold text-lg mb-2">Public — Enter Aadhaar</h3>
+                  <p className="text-sm text-slate-600 mb-3">Please enter your 12-digit Aadhaar number and your name & contact. This will be stored locally for this demo.</p>
+                  <div className="space-y-3">
+                    {/* Live preview of name & phone while typing */}
+                    <div className="grid gap-2">
+                      <input value={tempPublic.aadhaar} onChange={(e)=>setTempPublic(tp=>({...tp,aadhaar:e.target.value.replace(/\s+/g,'')}))} className="border rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400" placeholder="Aadhaar number (12 digits)" />
+                      <input value={tempPublic.name} onChange={(e)=>setTempPublic(tp=>({...tp,name:e.target.value}))} className="border rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400" placeholder="Your name" />
+                      <input value={tempPublic.phone} onChange={(e)=>setTempPublic(tp=>({...tp,phone:e.target.value}))} className="border rounded-xl px-3 py-2 text-slate-900 placeholder-slate-400" placeholder="Phone (optional)" />
+                    </div>
+                    <div className="flex items-center gap-2 justify-center">
+                      <button onClick={async ()=>{const aad = (tempPublic.aadhaar||'').replace(/\s+/g,''); if(!/^[0-9]{12}$/.test(aad)){alert('Please enter a valid 12-digit Aadhaar number');return} const profile = {aadhaar:aad,name:tempPublic.name||'You',phone:tempPublic.phone||'',at:new Date().toISOString()}; try{localStorage.setItem('publicProfile',JSON.stringify(profile)); setPublicProfile(profile); setTab('report');}catch(e){alert('Unable to save profile locally')}}} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Save Profile</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {tab==="report" && userType==="public" && publicProfile && <ReportForm publicProfile={publicProfile} onSubmit={(r)=>setReports([r,...reports])}/>} 
+            {tab==="report" && userType==="government" && !govProfile && (
+              <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border text-slate-600">Access restricted: upload government ID to view public reports.</div>
+            )}
+            {tab==="report" && userType==="government" && govProfile && (
+              <div>
+                {/* Category counts summary for government */}
+                <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                  {Object.entries(categoryCounts).map(([cat,count])=>(
+                    <div key={cat} className="bg-white/80 backdrop-blur rounded-xl p-3 text-sm text-slate-900 flex flex-col items-start">
+                      <div className="text-xs text-slate-500">{cat}</div>
+                      <div className="text-2xl font-semibold mt-1">{count}</div>
+                    </div>
+                  ))}
+                </div>
+                <AdminView reports={filtered} allReports={reports} setReports={setReports} filters={filters} setFilters={setFilters} showPriority={false}/>
+              </div>
+            )}
+            {tab==="my" && userType==="public" && <CitizenView reports={reports} setReports={setReports} publicProfile={publicProfile}/>} 
+            {tab==="admin" && (userType==='government' && !govProfile ? (
+              <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border text-slate-600">Access restricted: upload government ID to access Admin features.</div>
+            ) : (
+              <AdminView reports={filtered} allReports={reports} setReports={setReports} filters={filters} setFilters={setFilters} showPriority={true}/>
+            ))}
+              {/* Technician View */}
+              {userType === "technician" && (
+                <div className="space-y-6">
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold">Your Assigned Tasks</h3>
+                        <p className="text-sm text-slate-500">Manage and update your assigned work</p>
+                      </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-slate-600">Logged in as:</span>
+                      <span className="px-3 py-1 rounded-lg bg-amber-100 text-amber-700">
+                        <span className="font-medium">{techProfile?.name}</span>
+                        <span className="text-xs ml-1">({techProfile?.id})</span>
+                      </span>
+                    </div>
+                    </div>
+                  
+                    <div className="space-y-4">
+                      {reports.filter(r => r.assignedTechnician === techProfile?.id).map(task => (
+                        <div key={task.id} className="border rounded-xl p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium text-lg">{task.category}</span>
+                            <span className={`px-2 py-1 rounded-full text-xs ${
+                              task.status === "In Progress" ? "bg-blue-100 text-blue-700" :
+                              task.status === "Assigned" ? "bg-amber-100 text-amber-700" :
+                              "bg-slate-100 text-slate-700"
+                            }`}>{task.status}</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            {t.available ? <Badge tone="green">Available</Badge> : <Badge tone="yellow">Busy</Badge>}
+                          <p className="text-slate-600 mb-3">{task.description}</p>
+                          <div className="flex items-center gap-4">
+                            {task.status === "Assigned" && (
+                              <button
+                                onClick={() => {
+                                  const now = new Date().toISOString();
+                                  setReports(prev => prev.map(r => r.id === task.id ? {
+                                    ...r,
+                                    status: "In Progress",
+                                    updates: [...r.updates, {
+                                      at: now,
+                                      status: "In Progress",
+                                      note: `Work started by technician ${techProfile.name} (${techProfile.id})`
+                                    }]
+                                  } : r));
+                                }}
+                                className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm"
+                              >
+                                Start Work
+                              </button>
+                            )}
+                            {task.status === "In Progress" && (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    // Trigger file picker to upload completion photo
+                                    setPendingCompletionId(task.id);
+                                    completionFileRef.current?.click();
+                                  }}
+                                  className="px-3 py-2 rounded-lg bg-green-600 text-white text-sm"
+                                >
+                                  Upload Completion Photo
+                                </button>
+                                {task.completedPhoto && (
+                                  <div className="ml-3">
+                                    <div className="text-xs text-slate-500">Photo uploaded</div>
+                                    <img src={task.completedPhoto} alt="Completed" className="w-24 h-16 object-cover rounded mt-1 border" />
+                                  </div>
+                                )}
+                              </>
+                            )} 
+                            <div className="text-sm text-slate-500">
+                              Last updated: {fmtDate(task.updates[task.updates.length - 1]?.at)}
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {tab==="notifications" && (
-            <div className="bg-white border border-slate-200 shadow-sm card p-6">
-              <SectionTitle title="Notifications" subtitle="Government-side notifications (upvotes, completions, etc.)." />
-              {notifs.length===0 ? (
-                <div className="text-sm text-slate-600">No notifications.</div>
-              ) : (
-                <div className="space-y-2">
-                  {notifs.slice(0,30).map(n=>(
-                    <div key={n.id} className="border rounded-2xl p-3">
-                      <div className="text-sm">{n.message}</div>
-                      <div className="text-xs text-slate-500 mt-1">{fmt(n.at)} • {n.reportId || ""}</div>
-                    </div>
-                  ))}
                 </div>
               )}
-            </div>
-          )}
-
-          {tab==="settings" && (
-            <div className="bg-white border border-slate-200 shadow-sm card p-6">
-              <SectionTitle title="Settings" subtitle="SMS endpoint and AI thresholds. Leave SMS empty for demo mode (console log)." />
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium">SMS endpoint URL</label>
-                  <input className="mt-1 w-full border rounded-xl px-3 py-2"
-                         value={settings.smsEndpoint}
-                         onChange={(e)=>setSettings(s=>({...s, smsEndpoint:e.target.value}))}
-                         placeholder="https://your-backend/notify-technician" />
-                  <div className="text-xs text-slate-500 mt-1">
-                    Your backend must allow CORS for GitHub Pages if hosted separately.
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium">Issue auto-fill threshold</label>
-                  <input type="number" step="0.01" min="0" max="1"
-                         className="mt-1 w-full border rounded-xl px-3 py-2"
-                         value={settings.issueAutoFillThreshold}
-                         onChange={(e)=>setSettings(s=>({...s, issueAutoFillThreshold: Number(e.target.value)}))} />
-                  <div className="text-xs text-slate-500 mt-1">0.75 is a good starting point.</div>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium">Face login threshold</label>
-                  <input type="number" step="0.01" min="0" max="1"
-                         className="mt-1 w-full border rounded-xl px-3 py-2"
-                         value={settings.faceLoginThreshold}
-                         onChange={(e)=>setSettings(s=>({...s, faceLoginThreshold: Number(e.target.value)}))} />
-                  <div className="text-xs text-slate-500 mt-1">Increase if false logins happen.</div>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium">Duplicate radius (meters)</label>
-                  <input type="number" step="1" min="10" max="1000"
-                         className="mt-1 w-full border rounded-xl px-3 py-2"
-                         value={settings.duplicateRadiusMeters}
-                         onChange={(e)=>setSettings(s=>({...s, duplicateRadiusMeters: Number(e.target.value)}))} />
-                  <div className="text-xs text-slate-500 mt-1">Used with text similarity for duplicate detection.</div>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <button className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800"
-                        onClick={()=>{ saveLS(STORAGE.settings, settings); setToast("Settings saved."); }}>
-                  Save settings
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    function TechnicianLogin({techApi, onLoggedIn, setToast}){
-      const [dept, setDept] = useState("Roads");
-      const [techId, setTechId] = useState("");
-      const options = useMemo(()=> (techApi.techs[dept] || []), [techApi.techs, dept]);
-
-      useEffect(()=>{
-        if(options.length>0 && !techId) setTechId(options[0].id);
-      }, [dept]);
-
-      function login(){
-        const t = (techApi.techs[dept] || []).find(x=>x.id===techId);
-        if(!t){ setToast("Select a technician."); return; }
-        const prof = { ...t, department: dept, at: new Date().toISOString() };
-        saveLS(STORAGE.techProfile, prof);
-        setToast("Technician logged in.");
-        onLoggedIn(prof);
-      }
-
-      return (
-        <div className="max-w-3xl mx-auto p-6">
-          <div className="bg-white border border-slate-200 shadow-sm card p-6">
-            <SectionTitle title="Technician Login" subtitle="Select your department and profile." />
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium">Department</label>
-                <select className="mt-1 w-full border rounded-xl px-3 py-2"
-                        value={dept}
-                        onChange={(e)=>{ setDept(e.target.value); setTechId(""); }}>
-                  {Object.keys(techApi.techs).map(d=><option key={d}>{d}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-sm font-medium">Technician</label>
-                <select className="mt-1 w-full border rounded-xl px-3 py-2"
-                        value={techId}
-                        onChange={(e)=>setTechId(e.target.value)}>
-                  {options.map(t=><option key={t.id} value={t.id}>{t.name} ({t.id})</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="mt-4 flex gap-2">
-              <button onClick={login} className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800">Login</button>
-              <button onClick={()=>onLoggedIn(null)} className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50">Back</button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    function TechnicianView({reports, setReports, techApi, techProfile, setToast}){
-      const [completionFile, setCompletionFile] = useState(null);
-      const [completionPreview, setCompletionPreview] = useState("");
-
-      const myTask = useMemo(()=>{
-        if(!techProfile?.currentTask) return null;
-        return reports.find(r=>r.id===techProfile.currentTask) || null;
-      }, [reports, techProfile]);
-
-      const myNotifs = useMemo(()=>{
-        const all = loadLS(STORAGE.notifications, []);
-        return all.filter(n=>n.type==="technician" && (!n.technicianId || n.technicianId===techProfile?.id)).slice(0,30);
-      }, [reports, techProfile?.id]);
-
-      async function handleCompletionPhoto(e){
-        const f = e.target.files?.[0] || null;
-        setCompletionFile(f);
-        if(!f){ setCompletionPreview(""); return; }
-        setCompletionPreview(await fileToDataUrl(f));
-      }
-
-      function setStatus(id, status, note){
-        const now = new Date().toISOString();
-        setReports(prev=>prev.map(r=>r.id===id ? ({
-          ...r,
-          status,
-          updates:[...r.updates, { at: now, status, note }]
-        }) : r));
-      }
-
-      function completeTask(){
-        if(!myTask){ setToast("No assigned task."); return; }
-        if(!completionPreview){ setToast("Upload completion photo first."); return; }
-        const now = new Date().toISOString();
-
-        setReports(prev=>prev.map(r=>r.id===myTask.id ? ({
-          ...r,
-          status: "Pending Review",
-          completionPhoto: completionPreview,
-          updates:[...r.updates, { at: now, status:"Pending Review", note:`Work completed by ${techProfile.name} (${techProfile.id})` }]
-        }) : r));
-
-        pushNotification({
-          type:"government",
-          reportId: myTask.id,
-          at: now,
-          message: `Ticket ${myTask.id} marked completed by ${techProfile.name}. Pending review.`
-        });
-
-        setToast("Marked as Pending Review.");
-      }
-
-      function logout(){
-        saveLS(STORAGE.techProfile, null);
-        setToast("Logged out.");
-        window.location.reload();
-      }
-
-      return (
-        <div className="max-w-6xl mx-auto p-6 space-y-6">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-2xl font-bold">Technician</div>
-              <div className="text-sm text-slate-600">{techProfile.name} ({techProfile.id}) • {techProfile.department}</div>
-            </div>
-            <button onClick={logout} className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50">Logout</button>
-          </div>
-
-          <div className="bg-white border border-slate-200 shadow-sm card p-6">
-            <SectionTitle title="Assigned Task" subtitle="Update status and submit completion photo for review." />
-            {!myTask ? (
-              <div className="text-sm text-slate-600">No task assigned currently.</div>
+            {tab==="technicians" && (userType==='government' && !govProfile ? (
+              <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border text-slate-600">Access restricted: upload government ID to access Technicians features.</div>
             ) : (
-              <div className="border rounded-2xl p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold">{myTask.category} • {myTask.department}</div>
-                    <div className="text-sm text-slate-700 mt-1">{myTask.description}</div>
-                    <div className="text-xs text-slate-500 mt-2">{myTask.id} • {fmt(myTask.createdAt)}</div>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <Badge tone={myTask.priority==="High"?"red":myTask.priority==="Medium"?"yellow":"slate"}>{myTask.priority}</Badge>
-                    <Badge tone={myTask.status==="Pending Review"?"purple":myTask.status==="In Progress"?"yellow":myTask.status==="Assigned"?"blue":"slate"}>{myTask.status}</Badge>
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                  <h3 className="font-semibold mb-3">Available Technicians</h3>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {Object.values(DEPARTMENTS).map(dept => {
+                      const deptTechs = technicians[dept] || [];
+                      const availableCount = deptTechs.filter(t => t.available).length;
+                      const occupiedCount = deptTechs.length - availableCount;
+                      return (
+                        <div key={dept} className="border-2 rounded-xl p-4 bg-gradient-to-b from-white to-slate-50">
+                          <div className="text-lg font-semibold mb-3">{dept}</div>
+                          <div className="flex items-center gap-4 mb-4">
+                            <div className="flex-1 bg-green-100 rounded-lg p-2 text-center">
+                              <div className="text-2xl font-bold text-green-700">{availableCount}</div>
+                              <div className="text-xs text-green-600">Free</div>
+                            </div>
+                            <div className="flex-1 bg-amber-100 rounded-lg p-2 text-center">
+                              <div className="text-2xl font-bold text-amber-700">{occupiedCount}</div>
+                              <div className="text-xs text-amber-600">Engaged</div>
+                            </div>
+                          </div>
+                          <div className="text-xs text-slate-500 mb-3 text-center">
+                            {occupiedCount > 0 ? `${occupiedCount} technician${occupiedCount > 1 ? 's' : ''} currently engaged with tasks` : 'No technicians engaged'}
+                          </div>
+                          <div className="space-y-2">
+                            {deptTechs.map(tech => (
+                              <div key={tech.id} className={`flex items-center justify-between border-2 rounded-lg p-3 ${tech.available ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'} transition-all duration-300`}>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <div>
+                                      <span className="font-medium">{tech.name}</span>
+                                      <span className="text-xs text-slate-500 ml-1">({tech.id})</span>
+                                    </div>
+                                    <div className={`text-xs px-2 py-0.5 rounded-full ${tech.available ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
+                                      {tech.available ? 'Free' : 'Engaged'}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs ${tech.available ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                                      <span className={`w-2 h-2 rounded-full ${tech.available ? 'bg-green-500' : 'bg-amber-500'} animate-pulse`}></span>
+                                      {tech.available ? 'Available for new tasks' : 'Currently engaged'}
+                                    </span>
+                                  </div>
+                                  {!tech.available && tech.currentTask && (
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <WrenchIcon/>
+                                      <div className="text-xs text-amber-700">
+                                        Engaged with Task #{tech.currentTask}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className={`text-sm font-medium ${tech.available ? 'text-green-700' : 'text-amber-700'} flex items-center gap-1`}>
+                                  <span className={`w-2 h-2 rounded-full ${tech.available ? 'bg-green-500' : 'bg-amber-500'}`}></span>
+                                  {tech.available ? 'Ready' : 'Engaged'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-
-                {myTask.photo && <img src={myTask.photo} className="mt-3 w-full max-h-72 object-cover rounded-2xl border" alt="task" />}
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {myTask.status==="Assigned" && (
-                    <button onClick={()=>setStatus(myTask.id, "In Progress", `Work started by ${techProfile.name}`)}
-                            className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-800">
-                      Start work
-                    </button>
-                  )}
-                  {myTask.status==="In Progress" && (
-                    <div className="flex flex-wrap items-end gap-2">
-                      <div>
-                        <label className="text-sm font-medium">Completion photo</label>
-                        <input type="file" accept="image/*" className="mt-1 w-full" onChange={handleCompletionPhoto} />
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+                  <h3 className="font-semibold mb-3">Work Schedule</h3>
+                  <div className="text-sm text-slate-500 mb-4">View and manage technician schedules and assignments</div>
+                  <div className="space-y-3">
+                    {filtered.filter(r => r.status === "Assigned" || r.status === "In Progress").map(r => (
+                      <div key={r.id} className="border rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium">{r.category}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full border ${badgeColor(r.priority)}`}>{r.priority}</span>
+                        </div>
+                        <div className="text-sm text-slate-600">{r.department}</div>
+                        <div className="text-xs text-slate-500 mt-1">Status: {r.status}</div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button className="px-3 py-1.5 rounded-xl border text-sm">View Details</button>
+                          <button className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm">Update Status</button>
+                        </div>
                       </div>
-                      <button onClick={completeTask} className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">
-                        Mark completed (Pending Review)
-                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))} 
+          </main>
+          {aboutOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+              <div className="max-w-2xl w-full mx-4">
+                <div className="bg-white rounded-2xl p-6 text-slate-900 shadow-2xl">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-semibold">About — GOVERNMENT OF INDIA</h2>
+                      <div className="text-sm text-slate-600 mt-2">
+                        This is a prototype civic issue reporting demo created for demonstration purposes. It stores data locally in your browser and is not an official government portal.
+                      </div>
+                      <div className="text-sm text-slate-700 mt-3">
+                        यह एक प्रोटोटाइप है और केवल डेमो के लिए है। यह आधिकारिक सरकार पोर्टल नहीं है और सभी डेटा केवल आपके ब्राउज़र में स्थानीय रूप से संग्रहीत होते हैं।
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <button onClick={()=>setAboutOpen(false)} className="px-3 py-2 rounded-lg bg-slate-100 border">Close</button>
+                    </div>
+                  </div>
+                  <div className="mt-4 text-xs text-slate-500">
+                    <strong>Disclaimer:</strong> For production use replace localStorage persistence with secure server-side APIs, add authentication, and ensure legal compliance before using official emblems or branding.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          {userType === 'public' && <ChatWidget publicProfile={publicProfile} />}
+          <footer className="max-w-6xl mx-auto px-4 pb-8 text-xs text-slate-500">
+            <p>Note: Demo stores data in your browser (localStorage). Replace with APIs + DB for production; add push/SMS/email for notifications.</p>
+          </footer>
+        </div>
+      );
+    }
+    function TabButton({label,active,onClick}){return(<button onClick={onClick} className={`px-3 py-1.5 rounded-full text-sm border ${active?"bg-slate-900 text-white border-slate-900":"bg-white hover:bg-slate-100 border-slate-300"}`}>{label}</button>)}
+  function ReportForm({onSubmit, publicProfile}){
+      const [category,setCategory]=useState("");
+      const [description,setDescription]=useState("");
+      const [image,setImage]=useState(null);
+      const [coords,setCoords]=useState({lat:"",lng:""});
+      const [address,setAddress]=useState("");
+      const [submitting,setSubmitting]=useState(false);
+      const [aiLoading,setAiLoading]=useState(false);
+      const [aiGuess,setAiGuess]=useState(null);
+      const [aiError,setAiError]=useState("");
+      const AI_MIN_CONFIDENCE=0.75;
+      // Analysis UI state for progressive animation
+      const [analysisProgress,setAnalysisProgress]=useState(0);
+      const [analysisState,setAnalysisState]=useState("idle"); // 'idle' | 'analyzing' | 'done' 
+      const fileInput=useRef();
+      function useMyLocation(){if(!navigator.geolocation){alert("Geolocation not supported");return}navigator.geolocation.getCurrentPosition((pos)=>{const {latitude,longitude}=pos.coords;setCoords({lat:latitude.toFixed(6),lng:longitude.toFixed(6)})},()=>alert("Unable to fetch location"),{enableHighAccuracy:true,timeout:8000})}
+
+      async function handlePhotoChange(e){
+        const file = e.target.files?.[0] || null;
+        setImage(file);
+        setAiGuess(null);
+        setAiError("");
+        setCategory("");
+        setAnalysisProgress(0);
+        setAnalysisState("idle");
+        if(!file) return;
+
+        setAiLoading(true);
+        setAnalysisState("analyzing");
+        // start a faux progress animation while model runs
+        let prog = 5;
+        setAnalysisProgress(prog);
+        const iv = setInterval(()=>{
+          prog = Math.min(90, prog + Math.round(Math.random()*10));
+          setAnalysisProgress(prog);
+        }, 300);
+
+        try{
+          const res = await recognizeIssueFromFile(file);
+          setAiGuess(res);
+
+          // Map label (including numeric/class labels) to app category
+          const mapped = res.category || mapLabelToCategory(res.label) || "";
+          if(mapped){
+            setCategory(mapped);
+          }
+          // finalize progress
+          setAnalysisProgress(100);
+          setAnalysisState("done");
+        }catch(err){
+          console.error(err);
+          setAiError("AI could not analyze this photo. Try another image.");
+          setAnalysisState("done");
+        }finally{
+          clearInterval(iv);
+          // brief pause so users see 100%
+          setTimeout(()=>setAiLoading(false), 400);
+        }
+      }
+
+      async function handleSubmit(e){
+        e.preventDefault();
+        setSubmitting(true);
+        const photo=image?await fileToDataUrl(image):null;
+        const createdAt=new Date().toISOString();
+        const id=fakeId();
+        const priority=inferPriority(category,description);
+        const status="Submitted";
+        const department=assignDepartment(category);
+
+        // Try to find and assign an available technician immediately
+        let assignedTech = null;
+        try {
+          assignedTech = assignTask(id, department);
+          // If technician assigned, create a notification
+          if (assignedTech) {
+            pushNotification({
+              id: Date.now(),
+              reportId: id,
+              message: `Your ${category} report has been automatically assigned to ${assignedTech.name}. They will begin work soon.`,
+              at: createdAt,
+              reporter: publicProfile || { name: "You" }
+            });
+          }
+        } catch (err) {
+          console.error('Failed to assign technician:', err);
+        }
+
+        const reporter = publicProfile ? 
+          {name: publicProfile.name || 'You', phone: publicProfile.phone || '', photo: publicProfile.photo} : 
+          {name:"You",phone:"",email:""};
+
+        const updates = [{
+          at: createdAt,
+          status: "Submitted",
+          note: "Report created by citizen"
+        }];
+
+        // If a technician was assigned, add that to the updates
+        if (assignedTech) {
+          updates.push({
+            at: createdAt,
+            status: "Assigned",
+            note: `Automatically assigned to technician ${assignedTech.name} (${department} department)`
+          });
+        }
+
+        const report = {
+          id,
+          createdAt,
+          category,
+          description,
+          photo,
+          ai: aiGuess ? { label: aiGuess.label, confidence: aiGuess.confidence, category: aiGuess.category } : null,
+          coords,
+          address,
+          status: assignedTech ? "Assigned" : "Submitted",
+          priority,
+          department,
+          updates,
+          reporter,
+          review: null,
+          assignedTechnician: assignedTech ? assignedTech.id : null
+        };
+
+        setTimeout(()=>dispatchSystemEvent({id:report.id,type:"ack"}),800);
+        onSubmit(report);
+        setSubmitting(false);
+        setCategory("");
+        setDescription("");
+        setImage(null);
+        setCoords({lat:"",lng:""});
+        setAddress("");
+      }
+
+      return(
+        <div className="grid lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+              <h2 className="text-lg font-semibold mb-3">Report an Issue</h2>
+              <form onSubmit={handleSubmit} className="space-y-4">
+
+                {/* Upload photo first */}
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">Photo (upload first)</label>
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={()=>fileInput.current?.click()} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border"><Ico c="w-4 h-4"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l2-3h8l2 3h3a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></Ico> Upload Photo</button>
+                    <input ref={fileInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoChange}/>
+                    {image&&<span className="text-xs text-slate-600">Selected: {image.name}</span>}
+                  </div>
+                  {image&&(
+                    <div className="relative mt-2 inline-block">
+                      <img alt="preview" src={URL.createObjectURL(image)} className="rounded-xl border max-h-56 object-cover"/>
+
+                      {/* Analyzing overlay */}
+                      {analysisState==="analyzing" && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl overflow-hidden">
+                          <div className="scanline"/>
+                          <div className="relative z-10 flex flex-col items-center">
+                            <div className="glow-ring">
+                              <div className="w-12 h-12 rounded-full bg-white/20"></div>
+                            </div>
+                            <div className="mt-3 text-sm text-white">Analyzing…</div>
+                            <div className="mt-2 w-40 bg-white/10 rounded-full overflow-hidden">
+                              <div className="h-2 bg-white" style={{width: analysisProgress + '%', transition: 'width 300ms ease'}}></div>
+                            </div>
+                            <div className="mt-1 text-xs text-white/90">{analysisProgress}%</div>
+                          </div>
+                        </div>
+                      )} 
+
+                      {/* Result overlay: tick or cross */}
+                      {analysisState==="done" && aiGuess && (
+                        <div className="absolute inset-0 flex items-center justify-center rounded-xl">
+                          { (aiGuess.confidence >= AI_MIN_CONFIDENCE) ? (
+                            <div className="bg-emerald-600 text-white p-4 rounded-full shadow-lg flex items-center justify-center result-pop">
+                              <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>
+                            </div>
+                          ) : (
+                            <div className="bg-rose-600 text-white p-4 rounded-full shadow-lg flex items-center justify-center result-pop">
+                              <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 L6 18 M6 6 L18 18"/></svg>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {analysisState==="done" && !aiGuess && (
+                        <div className="absolute inset-0 flex items-center justify-center rounded-xl">
+                          <div className="bg-slate-700 text-white p-3 rounded-full shadow">?</div>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
 
-                {completionPreview && (
-                  <img src={completionPreview} className="mt-3 w-full max-h-72 object-cover rounded-2xl border" alt="completion" />
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white border border-slate-200 shadow-sm card p-6">
-            <SectionTitle title="Notifications" subtitle="New tasks and review feedback." />
-            {myNotifs.length===0 ? (
-              <div className="text-sm text-slate-600">No notifications.</div>
-            ) : (
-              <div className="space-y-2">
-                {myNotifs.map(n=>(
-                  <div key={n.id} className="border rounded-2xl p-3">
-                    <div className="text-sm">{n.message}</div>
-                    <div className="text-xs text-slate-500 mt-1">{fmt(n.at)} • {n.reportId || ""}</div>
+                  <div className="mt-1">
+                    {analysisState==="analyzing" && <div className="text-xs text-slate-500">Analyzing image…</div>}
+                    {analysisState==="done" && aiGuess && (<div className="text-xs text-slate-600 mt-1">AI suggestion: <span className="font-medium">{aiGuess.category||aiGuess.label}</span> ({Math.round(aiGuess.confidence*100)}%){aiGuess.confidence<AI_MIN_CONFIDENCE&&<span className="text-slate-500"> — low confidence</span>}</div>)}
+                    {aiError&&<div className="text-xs text-rose-600 mt-1">{aiError}</div>}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // ---------------------------
-    // App
-    // ---------------------------
-    function App(){
-      const [role, setRole] = useState(null);
-      const [toast, setToast] = useState("");
-
-      const [settings, setSettings] = useState(()=>({
-        ...DEFAULT_SETTINGS,
-        ...loadLS(STORAGE.settings, {})
-      }));
-
-      useEffect(()=>saveLS(STORAGE.settings, settings), [settings]);
-
-      const [reports, setReports] = useState(()=>loadLS(STORAGE.reports, []));
-
-      useEffect(()=>saveLS(STORAGE.reports, reports), [reports]);
-
-      const techApi = useTechnicians();
-
-      // Restore sessions
-      const [govProfile, setGovProfile] = useState(()=>loadLS(STORAGE.govProfile, null));
-      const [techProfile, setTechProfile] = useState(()=>loadLS(STORAGE.techProfile, null));
-
-      // Auto-assign on new report submission (optional but useful)
-      useEffect(()=>{
-        // If a report is New and we have free technician, assign automatically.
-        // This keeps demo lively even without government intervention.
-        const newest = reports[0];
-        if(!newest || newest.status !== "New") return;
-        // Only auto-assign if it's truly fresh (created within 15s)
-        const age = Date.now() - new Date(newest.createdAt).getTime();
-        if(age > 15000) return;
-
-        const tech = techApi.assign(newest.department, newest.id);
-        if(!tech) return;
-
-        const now = new Date().toISOString();
-        setReports(prev=>prev.map(r=>r.id===newest.id ? ({
-          ...r,
-          status:"Assigned",
-          assignedTechId: tech.id,
-          assignedTechName: tech.name,
-          updates:[...r.updates, {at: now, status:"Assigned", note:`Auto-assigned to ${tech.name} (${tech.id})` }]
-        }) : r));
-
-        pushNotification({ type:"technician", technicianId: tech.id, reportId: newest.id, at: now, message: `New auto-assigned task: ${newest.category} (${newest.department}). Ticket ${newest.id}.` });
-
-        // SMS trigger
-        sendTechnicianSMS(settings, tech, newest);
-
-        setToast(`Auto-assigned to ${tech.name}`);
-      }, [reports.length]); // run when a report is added
-
-      function resetAll(){
-        if(!confirm("Reset all local data?")) return;
-        localStorage.removeItem(STORAGE.reports);
-        localStorage.removeItem(STORAGE.notifications);
-        localStorage.removeItem(STORAGE.publicProfile);
-        localStorage.removeItem(STORAGE.govProfile);
-        localStorage.removeItem(STORAGE.techProfile);
-        localStorage.removeItem(STORAGE.technicians);
-        localStorage.removeItem(STORAGE.settings);
-        window.location.reload();
-      }
-
-      return (
-        <div>
-          <div className="bg-white border-b border-slate-200">
-            <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-2xl bg-slate-900"></div>
-                <div>
-                  <div className="font-bold">FixCity</div>
-                  <div className="text-xs text-slate-500">Civic Issue Reporter</div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={()=>setRole(null)} className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50">Home</button>
-                <button onClick={resetAll} className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50">Reset</button>
-              </div>
+
+                {/* Category: display only (auto-detected) */}
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">Category</label>
+                  <div className="w-full border rounded-xl px-3 py-2 bg-slate-50 text-slate-700">{category || (aiGuess ? (aiGuess.category||aiGuess.label) : "Unrecognized")}</div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">Description</label>
+                  <textarea value={description} onChange={(e)=>setDescription(e.target.value)} placeholder="Describe the issue…" className="w-full border rounded-xl px-3 py-2 min-h-[100px]"/>
+                </div>
+
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-1">Latitude</label>
+                    <input value={coords.lat} onChange={(e)=>setCoords(c=>({...c,lat:e.target.value}))} className="w-full border rounded-xl px-3 py-2" placeholder="e.g., 23.3441"/>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-1">Longitude</label>
+                    <input value={coords.lng} onChange={(e)=>setCoords(c=>({...c,lng:e.target.value}))} className="w-full border rounded-xl px-3 py-2" placeholder="e.g., 85.3096"/>
+                  </div>
+                  <div className="flex items-end">
+                    <button type="button" onClick={useMyLocation} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border"><MapPinIcon/> Use my location</button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-600 mb-1">Address (optional)</label>
+                  <input value={address} onChange={(e)=>setAddress(e.target.value)} className="w-full border rounded-xl px-3 py-2" placeholder="Landmark / Street / Area"/>
+                </div>
+
+                <div className="pt-2">
+                  <button disabled={submitting} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white"><SendIcon/> Submit Report</button>
+                </div>
+
+              </form>
             </div>
           </div>
-
-          {!role && <RolePicker onPick={setRole} />}
-
-          {role==="citizen" && (
-            <CitizenView
-              reports={reports}
-              setReports={setReports}
-              settings={settings}
-              setToast={setToast}
-            />
-          )}
-
-          {role==="government" && (
-            govProfile ? (
-              <GovernmentView
-                reports={reports}
-                setReports={setReports}
-                techApi={techApi}
-                settings={settings}
-                setSettings={setSettings}
-                setToast={setToast}
-              />
-            ) : (
-              <GovernmentLogin
-                settings={settings}
-                onLoggedIn={(prof)=>{
-                  if(prof===null){
-                    setRole(null);
-                    return;
-                  }
-                  setGovProfile(prof);
-                }}
-                setToast={setToast}
-              />
-            )
-          )}
-
-          {role==="technician" && (
-            techProfile ? (
-              <TechnicianView
-                reports={reports}
-                setReports={setReports}
-                techApi={techApi}
-                techProfile={techProfile}
-                setToast={setToast}
-              />
-            ) : (
-              <TechnicianLogin
-                techApi={techApi}
-                onLoggedIn={(prof)=>{
-                  if(prof===null){ setRole(null); return; }
-                  setTechProfile(prof);
-                }}
-                setToast={setToast}
-              />
-            )
-          )}
-
-          <Toast toast={toast} onClose={()=>setToast("")} />
+          <div>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><h3 className="font-semibold mb-2">How it works</h3><ol className="text-sm space-y-2 list-decimal list-inside"><li>Capture a photo and location.</li><li>Describe the issue and submit.</li><li>System auto‑routes to a department.</li><li>Track status: Acknowledged → Assigned → In Progress → Pending Review → Resolved.</li>
+<li>Technicians upload a completion photo when they finish work; the photo is attached to the report and sent to government & the reporter for verification.</li><li>Rate the resolution when closed.</li></ol><div className="mt-4 p-3 rounded-xl bg-amber-50 border text-amber-700 text-sm flex gap-2"><BellIcon/> This demo uses localStorage. Replace with secure APIs and add notifications for production.</div></div>
+          </div>
         </div>
-      );
+      )}
+  function CitizenView({reports,setReports,publicProfile}){
+    function isMine(r){
+      if(!r || !r.reporter) return false;
+      if(publicProfile){
+        // match by photo, name or phone when possible
+        if(publicProfile.photo && r.reporter.photo && publicProfile.photo===r.reporter.photo) return true;
+        if(publicProfile.name && r.reporter.name && publicProfile.name===r.reporter.name) return true;
+        if(publicProfile.phone && r.reporter.phone && publicProfile.phone===r.reporter.phone) return true;
+      }
+      // fallback to legacy 'You' marker
+      return r.reporter.name==="You";
     }
+    const myReports=reports.filter(isMine);
+    const [notifications,setNotifications]=useState(loadNotifications());
+    function advance(id){setReports(prev=>prev.map(r=>r.id===id?({...r,status:nextStatus(r.status),updates:[...r.updates,{at:new Date().toISOString(),status:nextStatus(r.status),note:"Status updated (demo)"}]}):r))}
+    function saveReview(id,rating,comment){setReports(prev=>prev.map(r=>r.id===id?({...r,review:{rating,comment,at:new Date().toISOString()}}):r))}
+    function dismissNotification(nid){const next=notifications.filter(n=>n.id!==nid);setNotifications(next);saveNotifications(next)}
+    const myNotifs=notifications.filter(n=>{const rep=n.reporter||{};return !n.reporter||isMine({reporter:rep})||n.reportId&&myReports.some(r=>r.id===n.reportId)});
+    return(<section className="space-y-3"><h2 className="text-lg font-semibold">Your submitted reports</h2>{myNotifs.length>0&&(<div className="space-y-2"><h3 className="text-sm font-semibold">Notifications</h3>{myNotifs.map(n=>(<div key={n.id} className="bg-white rounded-xl p-3 border flex items-start justify-between"><div><div className="text-sm text-slate-700">{n.message}</div><div className="text-xs text-slate-500 mt-1">{fmtDate(n.at)}</div></div><button onClick={()=>dismissNotification(n.id)} className="ml-4 text-xs text-slate-500">Dismiss</button></div>))}</div>)}<div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">{myReports.length===0&&<EmptyCard message="No reports yet. Submit your first civic issue!"/>}{myReports.map(r=><ReportCard key={r.id} r={r} onAdvance={()=>advance(r.id)} onSaveReview={saveReview}/>)}</div></section>)}
+  function AdminView({reports,allReports,setReports,filters,setFilters,showPriority=true}){
+    const [selection,setSelection]=useState([]);
+    const { assignTask } = useTechnicians();
+    
+    function toggle(id){
+      setSelection(sel=>sel.includes(id)?sel.filter(x=>x!==id):[...sel,id]);
+    }
+    
+    function bulkAdvance(){
+      setReports(prev=>prev.map(r=>selection.includes(r.id)?
+        ({...r,status:nextStatus(r.status),updates:[...r.updates,{at:new Date().toISOString(),status:nextStatus(r.status),note:"Admin bulk advanced"}]})
+        :r));
+      setSelection([]);
+    }
+    
+    function assign(id,dept){
+      setReports(prev=>prev.map(r=>r.id===id?
+        ({...r,department:dept,updates:[...r.updates,{at:new Date().toISOString(),status:r.status,note:`Reassigned to ${dept}`}] })
+        :r));
+    }
+    
+    // Function to assign a technician to a report
+    function assignTechnician(report) {
+      const tech = assignTask(report.id, report.department);
+      if (tech) {
+        const now = new Date().toISOString();
+        setReports(prev => prev.map(r => r.id === report.id ? {
+          ...r,
+          status: "Assigned",
+          assignedTechnician: tech.id,
+          updates: [
+            ...r.updates,
+            {
+              at: now,
+              status: "Assigned",
+              note: `Manually assigned to technician ${tech.name} (${report.department})`
+            }
+          ]
+        } : r));
+        
+        // Create notification
+        pushNotification({
+          id: Date.now(),
+          reportId: report.id,
+          message: `Your ${report.category} report has been assigned to ${tech.name}. They will begin work soon.`,
+          at: now,
+          reporter: report.reporter
+        });
+      } else {
+        alert('No free technicians available in ' + report.department);
+      }
+    }
+      const stats=useMemo(()=>{const byStatus=Object.fromEntries(STATUS_FLOW.map(s=>[s,0]));const byCat=Object.fromEntries(CATEGORIES.map(c=>[c,0]));const byDept=Object.values(DEPARTMENTS).reduce((a,d)=>(a[d]=0,a),{});let ratingSum=0,ratingCount=0;allReports.forEach(r=>{byStatus[r.status]=(byStatus[r.status]||0)+1;byCat[r.category]=(byCat[r.category]||0)+1;byDept[r.department]=(byDept[r.department]||0)+1;if(r.review&&typeof r.review.rating==="number"){ratingSum+=r.review.rating;ratingCount+=1}});return{byStatus,byCat,byDept,total:allReports.length,avgRating:ratingCount?(ratingSum/ratingCount):0,ratingCount}},[allReports]);
+      return(<div className="space-y-6"><div className="grid lg:grid-cols-5 gap-4"><StatCard title="Total Reports" value={stats.total} icon={<AlertIcon/>}/><StatCard title="Submitted" value={stats.byStatus['Submitted']} icon={<ClockIcon/>}/><StatCard title="In Progress" value={stats.byStatus['In Progress']} icon={<WrenchIcon/>}/><StatCard title="Resolved" value={stats.byStatus['Resolved']} icon={<CheckIcon/>}/><div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><div className="flex items-center gap-2 text-slate-600 text-sm"><StarIcon className="text-amber-500"/> Avg Rating</div><div className="text-2xl font-semibold mt-1 flex items-baseline gap-1">{stats.avgRating.toFixed(1)}<span className="text-xs text-slate-500">({stats.ratingCount})</span></div></div></div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><div className="flex flex-col sm:flex-row gap-3 sm:items-end sm:justify-between"><div><h3 className="font-semibold mb-1">Incoming Reports</h3><p className="text-sm text-slate-500">Filter, select, and advance status. Auto‑routing suggests department based on category. Ratings appear after resolution.</p></div><div className="flex flex-wrap gap-2"><FilterSelect label="Category" value={filters.category} onChange={(v)=>setFilters(f=>({...f,category:v}))} options={["",...CATEGORIES]}/><FilterSelect label="Status" value={filters.status} onChange={(v)=>setFilters(f=>({...f,status:v}))} options={["",...STATUS_FLOW]}/><FilterSelect label="Priority" value={filters.priority} onChange={(v)=>setFilters(f=>({...f,priority:v}))} options={["",...PRIORITIES]}/><button onClick={bulkAdvance} disabled={selection.length===0} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border"><WrenchIcon/> Advance Selected</button></div></div>
+  <div className="mt-4 grid grid-cols-1 gap-4">{reports.length===0&&<EmptyCard message="No matching reports. Try different filters."/>}{reports.map(r=>(<div key={r.id} className={`rounded-2xl border ${selection.includes(r.id)?"border-slate-900":"border-slate-200"}`}><div className="p-3 flex items-center justify-between"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={selection.includes(r.id)} onChange={()=>toggle(r.id)}/><span className="font-medium">{r.category}</span>{showPriority && <span className={`ml-2 text-xs px-2 py-0.5 rounded-full border ${badgeColor(r.priority)}`}>{r.priority}</span>}</label><span className="text-xs text-slate-500">{fmtDate(r.createdAt)}</span></div>{r.photo&&<img alt="report" src={r.photo} className="w-full h-40 object-cover"/>}<div className="p-3 space-y-2 text-sm"><p className="line-clamp-3">{r.description}</p><div className="flex items-center gap-2 text-slate-600"><MapPinIcon/> {r.coords.lat&&r.coords.lng?`${r.coords.lat}, ${r.coords.lng}`:"Location N/A"}</div><div className="flex items-center gap-2 text-slate-600"><ClockIcon/> {r.status}</div><div className="flex items-center gap-2 text-slate-600"><WrenchIcon/> Dept: {r.department}</div>{r.review&&(<div className="mt-1"><div className="text-slate-600 text-xs">Citizen rating:</div><StarsDisplay rating={r.review.rating}/>{r.review.comment&&<div className="text-xs text-slate-500 mt-1">“{r.review.comment}”</div>}</div>)}<div className="flex items-center gap-2"><label className="text-slate-600">Reassign:</label><select value={r.department} onChange={(e)=>assign(r.id,e.target.value)} className="border rounded-xl px-2 py-1">{Object.values(DEPARTMENTS).map(d=><option key={d} value={d}>{d}</option>)}</select>
+    <div className="flex items-center gap-2">
+          <button onClick={()=>deleteReport(r.id,setReports)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 text-xs">
+            <TrashIcon/> Delete
+          </button>
+          
+          {/* Assign Technician button - only show if not already assigned */}
+          {!r.assignedTechnician && r.status !== "Resolved" && (
+            <button 
+              onClick={() => assignTechnician(r)}
+              className="inline-flex items-center gap-1 bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs px-2 py-1 rounded-xl border border-blue-200"
+            >
+              <WrenchIcon/> Assign Technician
+            </button>
+          )}
+          
+          {/* Resolve & Notify button - only enabled when status is Pending Review */}
+          {r.status === "Pending Review" ? (
+            <button 
+              onClick={()=>{
+                setReports(prev=>prev.map(x=>x.id===r.id?
+                  ({...x,status:'Resolved',updates:[...x.updates,{at:new Date().toISOString(),status:'Resolved',note:'Marked resolved by admin after technician completion'}]})
+                  :x)); 
+                pushNotification({
+                  id:Date.now(),
+                  reportId:r.id,
+                  message:`Your report (${r.category}) has been reviewed and marked as resolved.`,
+                  at:new Date().toISOString(),
+                  reporter:r.reporter
+                });
+              }} 
+              className="inline-flex items-center gap-1 bg-green-100 text-green-700 hover:bg-green-200 text-xs px-2 py-1 rounded-xl border border-green-200"
+            >
+              <CheckIcon/> Mark Resolved & Notify
+            </button>
+          ) : (
+            r.status !== "Resolved" && (
+              <span className="text-xs text-slate-500">
+                {r.status === "In Progress" ? "Waiting for technician to complete work" : "Assign to technician first"}
+              </span>
+            )
+          )}
+        </div></div></div></div>))}</div></div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><h3 className="font-semibold mb-2">Hotspots (by volume)</h3><HotspotHeatlist reports={allReports}/></div></div>)}
+    function ReportCard({r,onAdvance,onSaveReview}){
+      const [showReview,setShowReview]=useState(false);
+      const canReview=r.status==="Resolved";
+      // Find the assigned technician's name from the updates
+      const assignedUpdate = r.updates.find(u => u.status === "Assigned");
+      const technicianName = assignedUpdate ? assignedUpdate.note.match(/assigned to technician (.*?) \(/)?.[1] : null;
+      
+      return(<div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        {r.photo&&<img alt="report" src={r.photo} className="w-full h-40 object-cover"/>}
+        {r.completedPhoto && (
+          <div className="p-3 pt-2">
+            <div className="text-xs text-slate-500 mb-1">Completed Photo</div>
+            <img src={r.completedPhoto} alt="Completed work" className="w-full h-40 object-cover rounded" />
+          </div>
+        )}
+        <div className="p-3 space-y-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-medium">{r.category}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full border ${badgeColor(r.priority)}`}>{r.priority}</span>
+          </div>
+          <p className="line-clamp-3">{r.description}</p>
+          <div className="flex items-center gap-2 text-slate-600">
+            <MapPinIcon/> {r.coords.lat&&r.coords.lng?`${r.coords.lat}, ${r.coords.lng}`:"Location N/A"}
+          </div>
+          <div className="flex items-center gap-2 text-slate-600">
+            <ClockIcon/> {r.status}
+          </div>
+          <div className="text-xs text-slate-500">{fmtDate(r.createdAt)} • Dept: {r.department}</div>
+          {technicianName && (
+            <div className="flex items-center gap-2 text-slate-600">
+              <WrenchIcon/> Assigned to: {technicianName}
+            </div>
+          )}<div className="pt-1 flex flex-wrap gap-2"><button onClick={onAdvance} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border"><WrenchIcon/> Advance status</button>{canReview&&!r.review&&(<button onClick={()=>setShowReview(v=>!v)} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border">Rate Resolution</button>)}</div>{canReview&&!r.review&&showReview&&(<ReviewForm onCancel={()=>setShowReview(false)} onSave={(rating,comment)=>{onSaveReview(r.id,rating,comment);setShowReview(false)}}/>)}
+      {r.review&&(<div className="mt-2 border rounded-xl p-2"><div className="text-slate-600 text-xs mb-1">Your Review</div><StarsDisplay rating={r.review.rating}/>{r.review.comment&&<div className="text-xs text-slate-600 mt-1">“{r.review.comment}”</div>}</div>)}</div></div>)}
+    function ReviewForm({onSave,onCancel}){const [rating,setRating]=useState(0);const [hover,setHover]=useState(0);const [comment,setComment]=useState("");return(<div className="mt-2 border rounded-xl p-3 bg-slate-50"><div className="text-sm font-medium mb-2">Rate the resolution</div><div className="flex items-center gap-1 mb-2">{[1,2,3,4,5].map(n=>(<button key={n} type="button" onMouseEnter={()=>setHover(n)} onMouseLeave={()=>setHover(0)} onClick={()=>setRating(n)} className={`p-1 ${(hover||rating)>=n?'text-amber-500':'text-slate-400'}`} aria-label={`${n} star`}><StarIcon filled={(hover||rating)>=n}/></button>))}<span className="text-xs text-slate-600 ml-2">{rating?`${rating}/5`:"Select rating"}</span></div><textarea value={comment} onChange={(e)=>setComment(e.target.value)} className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Optional feedback (what was good / what to improve)"/><div className="mt-2 flex gap-2"><button disabled={!rating} onClick={()=>onSave(rating,comment.trim())} className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-sm">Submit</button><button onClick={onCancel} className="px-3 py-1.5 rounded-xl border text-sm">Cancel</button></div></div>)}
+    function StarsDisplay({rating}){return(<div className="flex items-center gap-0.5 text-amber-500">{[1,2,3,4,5].map(n=><StarIcon key={n} filled={n<=rating}/>)}</div>)}
+    function FilterSelect({label,value,onChange,options}){return(<label className="text-sm flex items-center gap-2"><span className="text-slate-600">{label}</span><select value={value} onChange={(e)=>onChange(e.target.value)} className="border rounded-xl px-2 py-1">{options.map(o=><option key={o} value={o}>{o||"All"}</option>)}</select></label>)}
+    function StatCard({title,value,icon}){return(<div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4"><div className="flex items-center gap-2 text-slate-600 text-sm">{icon} {title}</div><div className="text-2xl font-semibold mt-1">{value}</div></div>)}
+    function EmptyCard({message}){return <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 text-center text-slate-500">{message}</div>}
+    function HotspotHeatlist({reports}){const buckets={};reports.forEach(r=>{const key=(r.coords.lat&&r.coords.lng)?`${Number(r.coords.lat).toFixed(3)},${Number(r.coords.lng).toFixed(3)}`:"Unspecified";buckets[key]=(buckets[key]||0)+1});const items=Object.entries(buckets).sort((a,b)=>b[1]-a[1]).slice(0,8);return(<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">{items.map(([k,v])=>(<div key={k} className="border rounded-xl p-3 flex items-center justify-between"><div className="flex items-center gap-2 text-slate-600"><MapPinIcon/> {k}</div><div className="text-slate-900 font-semibold">{v}</div></div>))}</div>)}
+    function deleteReport(id,setReports){setReports(prev=>prev.filter(r=>r.id!==id))}
+    function GovIdUploader({onSave}){
+      const [file,setFile]=useState(null);
+      const [preview,setPreview]=useState(null);
+      useEffect(()=>{if(!file){setPreview(null);return}const fr=new FileReader();fr.onload=()=>setPreview(fr.result);fr.readAsDataURL(file)},[file]);
+      return(
+        <div className="space-y-3">
+          <div className="flex items-center justify-center">
+            <label className="inline-flex flex-col items-center px-4 py-2 bg-slate-50 rounded-xl border cursor-pointer">
+              <div className="text-sm text-slate-600">Click to select image</div>
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e)=>setFile(e.target.files?.[0]||null)}/>
+            </label>
+          </div>
+          {preview&&(
+            <div className="flex items-center justify-center">
+              <img src={preview} alt="preview" className="w-48 h-28 object-cover rounded-md border"/>
+            </div>
+          )}
+          <div className="flex items-center gap-2 justify-center">
+            <button onClick={()=>{if(!preview){alert('Please select an image first');return}onSave(preview)}} className="px-4 py-2 rounded-xl bg-blue-700 text-white">Save ID</button>
+          </div>
+        </div>
+      )
+    }
+    
+      // Simple rule-based chatbot for public guidance
+      function ChatWidget({publicProfile}){
+        const [open,setOpen]=useState(false);
+        const [messages,setMessages]=useState([{
+          from:'bot',
+          text: 'Hello! I can help you file a report, check status, or explain how this demo works. Try: "How do I report?" or "Check my report status".'
+        }]);
+        const [input,setInput]=useState('');
+        const scrollRef = useRef();
 
-    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+        // FAQ / knowledge base for the bot
+        const FAQ = [
+          {q: 'How do I submit a report?', a: 'Open Report → choose a category → add description & photo → submit. The system auto‑routes to the responsible department.'},
+          {q: 'What is Aadhaar used for?', a: 'Aadhaar (12 digits) is used in this demo to identify public users locally. No external API is called.'},
+          {q: 'How are technicians assigned?', a: 'Technicians are assigned automatically when available; admins may assign manually. Statuses: Assigned → In Progress → Pending Review → Resolved.'},
+          {q: 'Is this an official site?', a: 'No — this is a demo prototype. Data is stored locally in your browser unless connected to an API.'},
+          {q: 'How do I check my report status?', a: 'Click My Reports in the top navigation (or ask me to open it). Reports you submitted in this browser will appear there.'}
+        ];
+
+        useEffect(()=>{ if(open){ setTimeout(()=>{ scrollRef.current?.scrollTo({top: scrollRef.current.scrollHeight, behavior:'smooth'}) },100) } },[messages,open]);
+
+        function pushUser(text){
+          if(!text||!text.trim())return;
+          const t = text.trim();
+          setMessages(prev=>[...prev,{from:'user',text:t}]);
+          setInput('');
+          // simple bot reply after delay with more helpful mappings
+          setTimeout(()=>{
+            const low = t.toLowerCase();
+            let reply = "Sorry, I didn't understand. Try: 'How do I report?', 'Check my status', or use one of the quick buttons.";
+            if(low.includes('how') && low.includes('report')){
+              reply = 'To report: click "Report" → choose category → add description & photo → submit. The system will auto‑assign a department.';
+              // suggest opening report form
+              dispatchSystemEvent({type:'open-report'});
+            } else if(low.includes('status') || low.includes('check')){
+              reply = 'To check status: open "My Reports" (top nav) — you will see all reports you submitted in this browser.';
+              dispatchSystemEvent({type:'open-my-reports'});
+            } else if(low.includes('aadhaar')||low.includes('aadhar')){
+              reply = 'Public login uses a 12‑digit Aadhaar number. Enter it on Public Login to save your profile locally for the demo.';
+            } else if(low.includes('technician')||low.includes('assign')){
+              reply = 'Technicians are assigned automatically when available or can be assigned by an admin. Statuses: Assigned → In Progress → Pending Review → Resolved.';
+            } else if(low.includes('contact')||low.includes('phone')){
+              reply = 'You can optionally add your phone when saving your profile — used only for demo identification.';
+            } else if(low.includes('help')||low.includes('guide')){
+              reply = 'I can guide you through the public flows: logging in, filing a report, and viewing your reports. Try the Quick actions below.';
+            }
+            setMessages(prev=>[...prev,{from:'bot',text:reply}]);
+          }, 500);
+        }
+
+        return (
+          <div className="fixed right-4 bottom-4 z-50">
+            {!open && (
+              <button onClick={()=>setOpen(true)} aria-label="Open chat" className="w-14 h-14 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01" />
+                </svg>
+              </button>
+            )}
+            {open && (
+              <div className="w-80 sm:w-96 bg-white rounded-2xl shadow-xl border overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-blue-600 text-white">
+                  <div className="font-semibold">Public Assistant</div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>{ setOpen(false) }} className="px-2 py-1 rounded bg-white/10">Close</button>
+                  </div>
+                </div>
+                <div className="p-3 bg-slate-50">
+                  <div className="mb-2 text-xs text-slate-500">Quick help</div>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {FAQ.slice(0,3).map((f,idx)=>(
+                      <button key={idx} onClick={()=>{ setMessages(prev=>[...prev,{from:'user',text:f.q}]); setTimeout(()=>setMessages(prev=>[...prev,{from:'bot',text:f.a}]),250); }} className="px-3 py-1.5 rounded-full bg-white border text-slate-700 text-xs">{f.q}</button>
+                    ))}
+                  </div>
+                  <div ref={scrollRef} className="h-56 overflow-y-auto p-1 space-y-2">
+                    {messages.map((m,i)=>(
+                      <div key={i} className={`flex ${m.from==='bot'?'justify-start':'justify-end'}`}>
+                        <div className={`max-w-[80%] px-3 py-2 rounded-xl ${m.from==='bot'?'bg-white border':'bg-blue-600 text-white'}`}>
+                          {m.text}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button onClick={()=>{ pushUser('How do I report?') }} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs">How to report</button>
+                    <button onClick={()=>{ pushUser('Check my status') }} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs">Check status</button>
+                    <button onClick={()=>{ pushUser('Aadhaar info') }} className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 text-xs">Aadhaar</button>
+                    <button onClick={()=>{ dispatchSystemEvent({type:'open-report'}) }} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs">Open Report form</button>
+                    <button onClick={()=>{ dispatchSystemEvent({type:'open-my-reports'}) }} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs">Open My Reports</button>
+                  </div>
+                </div>
+                <div className="p-2 bg-white border-t flex gap-2">
+                  <input value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ pushUser(input) } }} placeholder="Ask me (e.g., how to report)" className="flex-1 px-3 py-2 rounded-xl border" />
+                  <button onClick={()=>pushUser(input)} className="px-3 py-2 rounded-xl bg-blue-600 text-white">Send</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+    const root=ReactDOM.createRoot(document.getElementById("root")); root.render(<App/>);
   </script>
 </body>
 </html>
-"""
-
-out_path = Path("/mnt/data/index_fixcity_updated.html")
-out_path.write_text(html, encoding="utf-8")
-out_path
-
